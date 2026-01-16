@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Leaflet Map Styles */
+.leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+  z-index: 1;
+  font-family: inherit;
+  background-color: #e5e7eb;
+}
+
+.leaflet-container .leaflet-control {
+  z-index: 1000;
+}
+
+.leaflet-pane {
+  z-index: 400;
+}
+
+.leaflet-tile-pane {
+  z-index: 200;
+}
+
+.leaflet-overlay-pane {
+  z-index: 400;
+}
+
+.custom-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Ensure map tiles load properly */
+.leaflet-tile-container img {
+  max-width: none !important;
+  display: block;
+}
+
+.leaflet-tile {
+  display: block;
+  width: 256px;
+  height: 256px;
+}
+
+/* Fix for map not showing */
+#map-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+#map-container .leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+}
