@@ -56,6 +56,7 @@ export const productsAPI = {
 export const ordersAPI = {
   getAll: () => api.get('/orders'),
   getById: (id) => api.get(`/orders/${id}`),
+  getByOrderID: (orderID) => api.get(`/orders/track/${orderID}`), // Public endpoint for tracking
   create: (orderData) => api.post('/orders', orderData),
   updateStatus: (id, status) => api.put(`/orders/${id}/status`, { status }),
   updateDelivery: (id, deliveryStatus) => api.put(`/orders/${id}/track`, { deliveryStatus }),
@@ -69,6 +70,11 @@ export const locationsAPI = {
   create: (locationData) => api.post('/locations', locationData),
   update: (id, locationData) => api.put(`/locations/${id}`, locationData),
   delete: (id) => api.delete(`/locations/${id}`),
+};
+
+// Database API
+export const databaseAPI = {
+  getDatabase: () => api.get('/database'),
 };
 
 export default api;

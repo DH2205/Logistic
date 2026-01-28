@@ -38,6 +38,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' });
 });
 
+// Database endpoint - serve the database JSON file
+app.get('/api/database', (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dbPath = process.env.DB_FILE || path.join(__dirname, 'data/db.json');
+    
+    if (fs.existsSync(dbPath)) {
+      const data = fs.readFileSync(dbPath, 'utf8');
+      res.setHeader('Content-Type', 'application/json');
+      res.json(JSON.parse(data));
+    } else {
+      res.status(404).json({ message: 'Database file not found' });
+    }
+  } catch (error) {
+    console.error('Error reading database:', error);
+    res.status(500).json({ message: 'Error reading database', error: error.message });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);

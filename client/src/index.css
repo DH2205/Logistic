@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Pulse animation for progress marker */
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+.progress-marker {
+  animation: pulse 2s infinite;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

@@ -27,6 +27,9 @@ const Layout = ({ children }) => {
               <Link to="/shipments" className="text-gray-700 hover:text-primary-600">
                 Shipments
               </Link>
+              <Link to="/database" className="text-gray-700 hover:text-primary-600">
+                Database
+              </Link>
               
               {user ? (
                 <>

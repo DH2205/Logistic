@@ -22,7 +22,7 @@ router.post('/register', [
     const { email, password, name, phone, address } = req.body;
 
     // Check if user already exists
-    const existingUser = db.get('users').find({ email }).value();
+    const existingUser = await db.get('users').find({ email }).value();
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -42,7 +42,7 @@ router.post('/register', [
       createdAt: new Date().toISOString()
     };
 
-    db.get('users').push(user);
+    await db.get('users').push(user);
 
     // Generate token
     const token = generateToken(user.id);
@@ -110,9 +110,9 @@ router.post('/login', [
 });
 
 // Get current user
-router.get('/me', authenticateToken, (req, res) => {
+router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const user = db.get('users').find({ id: req.userId }).value();
+    const user = await db.get('users').find({ id: req.userId }).value();
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }

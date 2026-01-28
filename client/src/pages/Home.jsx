@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { productsAPI, locationsAPI } from '../services/api';
+import { productsAPI, locationsAPI, ordersAPI } from '../services/api';
 
 const Home = () => {
   const [shipments, setShipments] = useState([]);
@@ -14,13 +14,27 @@ const Home = () => {
   });
   const [loading, setLoading] = useState(true);
   const [mapLoading, setMapLoading] = useState(true);
+  const [orderID, setOrderID] = useState('');
+  const [trackedOrder, setTrackedOrder] = useState(null);
+  const [routeLocations, setRouteLocations] = useState([]);
+  const [currentLocationIndex, setCurrentLocationIndex] = useState(-1);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
+  const polylinesRef = useRef([]);
+  const progressMarkerRef = useRef(null);
 
   useEffect(() => {
     fetchShipments();
     fetchLocations();
+    
+    // Clear route when orderID is cleared
+    if (!orderID) {
+      setTrackedOrder(null);
+      setRouteLocations([]);
+      setCurrentLocationIndex(-1);
+      clearRouteVisualization();
+    }
     
     // Try to initialize map after a delay to ensure DOM is ready
     const initTimer = setTimeout(() => {
@@ -68,11 +82,14 @@ const Home = () => {
         }
       } else if (mapInstanceRef.current && locations.length > 0) {
         updateMarkers();
+        if (routeLocations.length > 0) {
+          drawRoute();
+        }
       }
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [locations, mapView]);
+  }, [locations, mapView, routeLocations, currentLocationIndex]);
 
   const fetchShipments = async () => {
     try {
@@ -168,7 +185,13 @@ const Home = () => {
         dragging: true,
         minZoom: 2,
         maxZoom: 19,
-        preferCanvas: false
+        preferCanvas: false,
+        worldCopyJump: false, // Prevent map duplication when scrolling
+        maxBounds: [
+          [-90, -180], // Southwest corner
+          [90, 180]    // Northeast corner
+        ],
+        maxBoundsViscosity: 1.0 // Prevent dragging beyond bounds
       }).setView([defaultLat, defaultLng], defaultZoom);
       
       // Force immediate size calculation
@@ -183,7 +206,7 @@ const Home = () => {
         attribution: '© OpenStreetMap contributors',
         minZoom: 2,
         maxZoom: 19,
-        noWrap: false,
+        noWrap: true, // Prevent tile wrapping (single world view)
         crossOrigin: true,
         errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
       }).addTo(mapInstance);
@@ -328,9 +351,19 @@ const Home = () => {
     markersRef.current = [];
 
     // Filter locations based on view
-    const filteredLocations = mapView === 'all' 
+    // When tracking, always show route locations plus filtered locations
+    let filteredLocations = mapView === 'all' 
       ? locations 
       : locations.filter(loc => loc.type === mapView);
+    
+    // If tracking, ensure route locations are visible
+    if (routeLocations.length > 0) {
+      const routeLocationIds = new Set(routeLocations.map(loc => loc.id));
+      const routeLocsNotInFiltered = routeLocations.filter(loc => 
+        !filteredLocations.some(floc => floc.id === loc.id)
+      );
+      filteredLocations = [...filteredLocations, ...routeLocsNotInFiltered];
+    }
 
     if (filteredLocations.length === 0) {
       console.log('No locations to display for view:', mapView);
@@ -342,20 +375,36 @@ const Home = () => {
     // Add markers for each location
     filteredLocations.forEach(location => {
       try {
+        // Check if this location is part of the route
+        const isRouteLocation = routeLocations.some(rl => rl.id === location.id);
+        const isCurrentLocation = currentLocationIndex >= 0 && 
+          routeLocations[currentLocationIndex]?.id === location.id;
+        
         const iconColor = getIconColor(location.type);
+        
+        // Use larger, highlighted marker for route locations
+        const markerSize = isRouteLocation ? 28 : 24;
+        const borderWidth = isRouteLocation ? 4 : 3;
+        const shadowSize = isRouteLocation ? '0 0 0 2px rgba(239, 68, 68, 0.3), 0 2px 8px rgba(0,0,0,0.4)' : '0 2px 6px rgba(0,0,0,0.4)';
+        
         const customIcon = L.divIcon({
           className: 'custom-marker',
-          html: `<div style="background-color: ${iconColor}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer;"></div>`,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12]
+          html: `<div style="background-color: ${iconColor}; width: ${markerSize}px; height: ${markerSize}px; border-radius: 50%; border: ${borderWidth}px solid white; box-shadow: ${shadowSize}; cursor: pointer;"></div>`,
+          iconSize: [markerSize, markerSize],
+          iconAnchor: [markerSize / 2, markerSize / 2]
         });
 
-        const marker = L.marker([location.latitude, location.longitude], { icon: customIcon })
+        const marker = L.marker([location.latitude, location.longitude], { 
+          icon: customIcon,
+          zIndexOffset: isRouteLocation ? 500 : 0
+        })
           .addTo(map)
           .bindPopup(`
             <div class="p-2">
               <h3 class="font-bold text-sm text-black">${location.name}</h3>
               <p class="text-xs font-semibold" style="color: ${iconColor}">${location.type.toUpperCase()}</p>
+              ${isRouteLocation ? `<p class="text-xs text-red-600 font-semibold mt-1">📍 Route Location</p>` : ''}
+              ${isCurrentLocation ? `<p class="text-xs text-green-600 font-semibold mt-1">✓ Current Location</p>` : ''}
               ${location.address ? `<p class="text-xs text-gray-600 mt-1">${location.address}</p>` : ''}
               ${location.city && location.country ? `<p class="text-xs text-gray-500">${location.city}, ${location.country}</p>` : ''}
             </div>
@@ -403,6 +452,226 @@ const Home = () => {
       seaport: locations.filter(loc => loc.type === 'seaport').length,
       total: locations.length
     };
+  };
+
+  const fetchOrderByID = async () => {
+    if (!orderID.trim()) {
+      setTrackedOrder(null);
+      setRouteLocations([]);
+      setCurrentLocationIndex(-1);
+      clearRouteVisualization();
+      return;
+    }
+
+    try {
+      const response = await ordersAPI.getByOrderID(orderID.trim());
+      const order = response.data;
+      setTrackedOrder(order);
+      
+      // Calculate route based on origin and destination countries
+      calculateRoute(order);
+    } catch (error) {
+      console.error('Error fetching order:', error);
+      setTrackedOrder(null);
+      setRouteLocations([]);
+      setCurrentLocationIndex(-1);
+      clearRouteVisualization();
+      alert('Order not found. Please check the OrderID.');
+    }
+  };
+
+  const calculateRoute = (order) => {
+    if (!order.origin?.country || !order.destination?.country) {
+      return;
+    }
+
+    // Find airports in origin and destination countries
+    const originAirports = locations.filter(
+      loc => loc.type === 'airport' && 
+      loc.country?.toLowerCase() === order.origin.country.toLowerCase()
+    );
+    
+    const destinationAirports = locations.filter(
+      loc => loc.type === 'airport' && 
+      loc.country?.toLowerCase() === order.destination.country.toLowerCase()
+    );
+
+    if (originAirports.length === 0 || destinationAirports.length === 0) {
+      alert('Could not find airports for the origin or destination country.');
+      return;
+    }
+
+    // Select main airports (first one found, or could be improved with selection logic)
+    const originAirport = originAirports[0];
+    const destinationAirport = destinationAirports[0];
+
+    // Build route: if different countries, might have intermediate stops
+    let route = [originAirport];
+    
+    // Check if order has a route field (for multi-stop routes)
+    if (order.route && Array.isArray(order.route)) {
+      // Use predefined route if available
+      const routeLocationIds = order.route;
+      const routeLocs = routeLocationIds
+        .map(id => locations.find(loc => loc.id === id))
+        .filter(loc => loc !== undefined);
+      
+      if (routeLocs.length > 0) {
+        route = routeLocs;
+      } else {
+        // Fallback: check for intermediate countries
+        if (order.intermediateStops && Array.isArray(order.intermediateStops)) {
+          order.intermediateStops.forEach(stop => {
+            const stopAirports = locations.filter(
+              loc => loc.type === 'airport' && 
+              loc.country?.toLowerCase() === stop.country?.toLowerCase()
+            );
+            if (stopAirports.length > 0) {
+              route.push(stopAirports[0]);
+            }
+          });
+        }
+        route.push(destinationAirport);
+      }
+    } else {
+      // Simple direct route, but check if we need intermediate stops based on delivery status
+      // For demo: if in-transit, add a stop in between
+      if (order.deliveryStatus === 'in-transit' && originAirport.country !== destinationAirport.country) {
+        // Find an intermediate airport (e.g., a major hub)
+        const intermediateAirports = locations.filter(
+          loc => loc.type === 'airport' && 
+          loc.country?.toLowerCase() !== order.origin.country.toLowerCase() &&
+          loc.country?.toLowerCase() !== order.destination.country.toLowerCase()
+        );
+        
+        // Select a major hub (e.g., first one found, could be improved)
+        if (intermediateAirports.length > 0) {
+          route.push(intermediateAirports[0]);
+        }
+      }
+      route.push(destinationAirport);
+    }
+
+    setRouteLocations(route);
+    
+    // Determine current location based on delivery status
+    let currentIndex = -1;
+    if (order.deliveryStatus === 'processing' || order.deliveryStatus === 'packed') {
+      currentIndex = 0; // At origin
+    } else if (order.deliveryStatus === 'shipped' || order.deliveryStatus === 'in-transit') {
+      // If there are intermediate stops, could be at first intermediate
+      // For simplicity, mark as in transit (between locations)
+      currentIndex = route.length > 2 ? 1 : 0;
+    } else if (order.deliveryStatus === 'out-for-delivery') {
+      currentIndex = route.length - 1; // At destination
+    } else if (order.deliveryStatus === 'delivered') {
+      currentIndex = route.length - 1; // At destination
+    }
+    
+    // Use currentLocation from order if available
+    if (order.currentLocation) {
+      const currentLoc = locations.find(loc => loc.id === order.currentLocation);
+      if (currentLoc) {
+        const foundIndex = route.findIndex(r => r.id === currentLoc.id);
+        if (foundIndex !== -1) {
+          currentIndex = foundIndex;
+        }
+      }
+    }
+    
+    setCurrentLocationIndex(currentIndex);
+    
+    // Draw route after a short delay to ensure map is ready
+    setTimeout(() => {
+      drawRoute();
+    }, 300);
+  };
+
+  const drawRoute = () => {
+    if (!mapInstanceRef.current || !window.L || routeLocations.length < 2) {
+      return;
+    }
+
+    const L = window.L;
+    const map = mapInstanceRef.current;
+
+    // Clear existing polylines
+    clearRouteVisualization();
+
+    // Draw lines connecting route locations
+    for (let i = 0; i < routeLocations.length - 1; i++) {
+      const start = routeLocations[i];
+      const end = routeLocations[i + 1];
+      
+      const polyline = L.polyline(
+        [[start.latitude, start.longitude], [end.latitude, end.longitude]],
+        {
+          color: '#ef4444', // red color
+          weight: 3,
+          opacity: 0.7,
+          dashArray: '10, 5'
+        }
+      ).addTo(map);
+
+      polylinesRef.current.push(polyline);
+    }
+
+    // Add progress marker at current location
+    if (currentLocationIndex >= 0 && currentLocationIndex < routeLocations.length) {
+      const currentLoc = routeLocations[currentLocationIndex];
+      
+      const progressIcon = L.divIcon({
+        className: 'progress-marker',
+        html: `<div style="background-color: #10b981; width: 20px; height: 20px; border-radius: 50%; border: 4px solid white; box-shadow: 0 0 0 3px #10b981, 0 2px 8px rgba(0,0,0,0.3); animation: pulse 2s infinite;"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+
+      progressMarkerRef.current = L.marker([currentLoc.latitude, currentLoc.longitude], { 
+        icon: progressIcon,
+        zIndexOffset: 1000
+      })
+        .addTo(map)
+        .bindPopup(`
+          <div class="p-2">
+            <h3 class="font-bold text-sm text-black">Package Location</h3>
+            <p class="text-xs text-green-600 font-semibold">CURRENT LOCATION</p>
+            <p class="text-xs text-gray-600 mt-1">${currentLoc.name}</p>
+            <p class="text-xs text-gray-500">${currentLoc.city}, ${currentLoc.country}</p>
+          </div>
+        `);
+    }
+
+    // Fit map to show entire route
+    if (routeLocations.length > 0) {
+      const bounds = L.latLngBounds(routeLocations.map(loc => [loc.latitude, loc.longitude]));
+      map.fitBounds(bounds, { 
+        padding: [50, 50],
+        maxZoom: 8
+      });
+    }
+  };
+
+  const clearRouteVisualization = () => {
+    // Remove polylines
+    polylinesRef.current.forEach(polyline => {
+      try {
+        polyline.remove();
+      } catch (e) {
+        console.error('Error removing polyline:', e);
+      }
+    });
+    polylinesRef.current = [];
+
+    // Remove progress marker
+    if (progressMarkerRef.current) {
+      try {
+        progressMarkerRef.current.remove();
+      } catch (e) {
+        console.error('Error removing progress marker:', e);
+      }
+      progressMarkerRef.current = null;
+    }
   };
 
   // Generate chart data
@@ -487,6 +756,42 @@ const Home = () => {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold text-black">Locations Map</h2>
               <div className="flex gap-2">
+                {/* OrderID Tracking Input */}
+                <div className="flex items-center gap-2 mr-4">
+                  <input
+                    type="text"
+                    placeholder="Enter OrderID to track"
+                    value={orderID}
+                    onChange={(e) => setOrderID(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        fetchOrderByID();
+                      }
+                    }}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  />
+                  <button
+                    onClick={fetchOrderByID}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition"
+                  >
+                    Track
+                  </button>
+                  {trackedOrder && (
+                    <button
+                      onClick={() => {
+                        setOrderID('');
+                        setTrackedOrder(null);
+                        setRouteLocations([]);
+                        setCurrentLocationIndex(-1);
+                        clearRouteVisualization();
+                        updateMarkers();
+                      }}
+                      className="px-3 py-2 bg-gray-500 text-white rounded-md text-sm font-medium hover:bg-gray-600 transition"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <button 
                   onClick={() => setMapView('all')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition ${
@@ -558,20 +863,41 @@ const Home = () => {
                 />
                 {/* Map overlay info - Fixed positioning */}
                 <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border-l-4 border-red-600 z-10 pointer-events-auto">
-                  <p className="text-sm font-semibold text-black">
-                    {getLocationStats().total} Total Locations
-                  </p>
-                  <div className="flex gap-3 mt-2 text-xs">
-                    <span className="text-red-600 font-semibold">
-                      {getLocationStats().storage} Storage
-                    </span>
-                    <span className="text-blue-600 font-semibold">
-                      {getLocationStats().airport} Airports
-                    </span>
-                    <span className="text-green-600 font-semibold">
-                      {getLocationStats().seaport} Seaports
-                    </span>
-                  </div>
+                  {trackedOrder ? (
+                    <div>
+                      <p className="text-sm font-semibold text-black mb-1">
+                        Tracking: {trackedOrder.orderID}
+                      </p>
+                      <p className="text-xs text-gray-600 mb-2">
+                        Status: <span className="font-semibold">{trackedOrder.deliveryStatus}</span>
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        Route: {routeLocations.map(loc => loc.city || loc.country).join(' → ')}
+                      </p>
+                      {currentLocationIndex >= 0 && (
+                        <p className="text-xs text-green-600 font-semibold mt-1">
+                          Current: {routeLocations[currentLocationIndex]?.name || routeLocations[currentLocationIndex]?.city}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-black">
+                        {getLocationStats().total} Total Locations
+                      </p>
+                      <div className="flex gap-3 mt-2 text-xs">
+                        <span className="text-red-600 font-semibold">
+                          {getLocationStats().storage} Storage
+                        </span>
+                        <span className="text-blue-600 font-semibold">
+                          {getLocationStats().airport} Airports
+                        </span>
+                        <span className="text-green-600 font-semibold">
+                          {getLocationStats().seaport} Seaports
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
                 {!mapInstanceRef.current && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-50/90 rounded-lg z-20">

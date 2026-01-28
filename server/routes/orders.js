@@ -6,13 +6,28 @@ const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
-// All order routes require authentication
+// Public route to get order by orderID (for tracking)
+router.get('/track/:orderID', async (req, res) => {
+  try {
+    const order = await db.get('orders').find({ orderID: req.params.orderID }).value();
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+    // Return order without sensitive user information
+    const { userId, ...orderData } = order;
+    res.json(orderData);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// All other order routes require authentication
 router.use(authenticateToken);
 
 // Get user orders
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const orders = db.get('orders').filter({ userId: req.userId }).value();
+    const orders = await db.get('orders').filter({ userId: req.userId }).value();
     
     // Return orders (new format doesn't require product population)
     res.json(orders);
@@ -22,9 +37,9 @@ router.get('/', (req, res) => {
 });
 
 // Get order by ID
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const order = db.get('orders').find({ id: req.params.id, userId: req.userId }).value();
+    const order = await db.get('orders').find({ id: req.params.id, userId: req.userId }).value();
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
@@ -58,7 +73,7 @@ router.post('/', [
   body('sender.address').notEmpty(),
   body('origin.country').notEmpty(),
   body('destination.country').notEmpty()
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -81,7 +96,7 @@ router.post('/', [
     let isUnique = false;
     while (!isUnique) {
       orderID = generateOrderID();
-      const existingOrder = db.get('orders').find({ orderID }).value();
+      const existingOrder = await db.get('orders').find({ orderID }).value();
       if (!existingOrder) {
         isUnique = true;
       }
@@ -120,7 +135,7 @@ router.post('/', [
       updatedAt: submissionTime
     };
 
-    db.get('orders').push(order).write();
+    await db.get('orders').push(order);
 
     res.status(201).json(order);
   } catch (error) {
@@ -131,24 +146,24 @@ router.post('/', [
 // Update order status (for admin - simplified for demo)
 router.put('/:id/status', [
   body('status').isIn(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'])
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const order = db.get('orders').find({ id: req.params.id }).value();
+    const order = await db.get('orders').find({ id: req.params.id }).value();
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    db.get('orders').find({ id: req.params.id }).assign({
+    await db.get('orders').find({ id: req.params.id }).assign({
       status: req.body.status,
       updatedAt: new Date().toISOString()
-    }).write();
+    });
 
-    const updatedOrder = db.get('orders').find({ id: req.params.id }).value();
+    const updatedOrder = await db.get('orders').find({ id: req.params.id }).value();
     res.json(updatedOrder);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -158,24 +173,24 @@ router.put('/:id/status', [
 // Update delivery status
 router.put('/:id/track', [
   body('deliveryStatus').isIn(['processing', 'packed', 'shipped', 'in-transit', 'out-for-delivery', 'delivered'])
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const order = db.get('orders').find({ id: req.params.id }).value();
+    const order = await db.get('orders').find({ id: req.params.id }).value();
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    db.get('orders').find({ id: req.params.id }).assign({
+    await db.get('orders').find({ id: req.params.id }).assign({
       deliveryStatus: req.body.deliveryStatus,
       updatedAt: new Date().toISOString()
-    }).write();
+    });
 
-    const updatedOrder = db.get('orders').find({ id: req.params.id }).value();
+    const updatedOrder = await db.get('orders').find({ id: req.params.id }).value();
     res.json(updatedOrder);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

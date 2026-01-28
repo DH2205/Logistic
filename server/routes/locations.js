@@ -6,23 +6,23 @@ const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
-// All location routes require authentication
-router.use(authenticateToken);
-
-// Get all locations
-router.get('/', (req, res) => {
+// Get all locations (public - needed for map)
+router.get('/', async (req, res) => {
   try {
-    const locations = db.get('locations').value();
+    const locations = await db.get('locations').value();
     res.json(locations || []);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// Get location by ID
-router.get('/:id', (req, res) => {
+// All other location routes require authentication
+router.use(authenticateToken);
+
+// Get location by ID (public - needed for map)
+router.get('/:id', async (req, res) => {
   try {
-    const location = db.get('locations').find({ id: req.params.id }).value();
+    const location = await db.get('locations').find({ id: req.params.id }).value();
     if (!location) {
       return res.status(404).json({ message: 'Location not found' });
     }
@@ -32,15 +32,15 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// Get locations by type
-router.get('/type/:type', (req, res) => {
+// Get locations by type (public - needed for map)
+router.get('/type/:type', async (req, res) => {
   try {
     const { type } = req.params;
     const validTypes = ['storage', 'airport', 'seaport'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ message: 'Invalid location type' });
     }
-    const locations = db.get('locations').filter({ type }).value();
+    const locations = await db.get('locations').filter({ type }).value();
     res.json(locations || []);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -56,7 +56,7 @@ router.post('/', [
   body('address').optional().trim(),
   body('city').optional().trim(),
   body('country').optional().trim(),
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -75,7 +75,7 @@ router.post('/', [
     } = req.body;
 
     // Check if location with same coordinates already exists
-    const existingLocation = db.get('locations').find({
+    const existingLocation = await db.get('locations').find({
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude)
     }).value();
@@ -98,7 +98,7 @@ router.post('/', [
       updatedAt: new Date().toISOString()
     };
 
-    db.get('locations').push(location).write();
+    await db.get('locations').push(location);
 
     res.status(201).json(location);
   } catch (error) {
@@ -112,14 +112,14 @@ router.put('/:id', [
   body('type').optional().isIn(['storage', 'airport', 'seaport']),
   body('latitude').optional().isFloat({ min: -90, max: 90 }),
   body('longitude').optional().isFloat({ min: -180, max: 180 }),
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const location = db.get('locations').find({ id: req.params.id }).value();
+    const location = await db.get('locations').find({ id: req.params.id }).value();
     if (!location) {
       return res.status(404).json({ message: 'Location not found' });
     }
@@ -133,9 +133,9 @@ router.put('/:id', [
     if (updates.latitude) updates.latitude = parseFloat(updates.latitude);
     if (updates.longitude) updates.longitude = parseFloat(updates.longitude);
 
-    db.get('locations').find({ id: req.params.id }).assign(updates).write();
+    await db.get('locations').find({ id: req.params.id }).assign(updates);
 
-    const updatedLocation = db.get('locations').find({ id: req.params.id }).value();
+    const updatedLocation = await db.get('locations').find({ id: req.params.id }).value();
     res.json(updatedLocation);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -143,14 +143,14 @@ router.put('/:id', [
 });
 
 // Delete location
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const location = db.get('locations').find({ id: req.params.id }).value();
+    const location = await db.get('locations').find({ id: req.params.id }).value();
     if (!location) {
       return res.status(404).json({ message: 'Location not found' });
     }
 
-    db.get('locations').find({ id: req.params.id }).remove().write();
+    await db.get('locations').find({ id: req.params.id }).remove();
 
     res.json({ message: 'Location deleted successfully' });
   } catch (error) {

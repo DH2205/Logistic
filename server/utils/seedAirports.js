@@ -3,7 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const dbPath = process.env.DB_FILE || './data/db.json';
+const dbPath = process.env.DB_FILE || path.join(__dirname, '../data/db.json');
+const dbDir = path.dirname(dbPath);
+
+// Ensure data directory exists
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 
 function readDb() {
   try {

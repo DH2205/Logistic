@@ -10,6 +10,7 @@ import Orders from './pages/Orders';
 import OrderDetail from './pages/OrderDetail';
 import CreateOrder from './pages/CreateOrder';
 import Locations from './pages/Locations';
+import Database from './pages/Database';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
             <Route path="/orders/create" element={<CreateOrder />} />
             <Route path="/orders/:id" element={<OrderDetail />} />
             <Route path="/locations" element={<Locations />} />
+            <Route path="/database" element={<Database />} />
           </Routes>
         </Layout>
       </Router>

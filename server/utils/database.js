@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const dbPath = process.env.DB_FILE || './data/db.json';
+const dbPath = process.env.DB_FILE || path.join(__dirname, '../data/db.json');
 const dbDir = path.dirname(dbPath);
 
 // Ensure data directory exists
@@ -46,6 +46,19 @@ function initializeDatabase() {
   if (!data.products || data.products.length === 0) {
     data.products = seedProducts();
     writeDb(data);
+  }
+
+  // Seed airports if locations is empty or has no airports
+  // Check if there are any airports in the database
+  const existingAirports = (data.locations || []).filter(loc => loc.type === 'airport');
+  if (existingAirports.length === 0) {
+    try {
+      const { seedAirports } = require('./seedAirports');
+      const result = seedAirports();
+      console.log(`Airport seeding completed. Added: ${result.added}, Total available: ${result.total}`);
+    } catch (error) {
+      console.error('Error seeding airports during initialization:', error);
+    }
   }
 }
 
@@ -292,7 +305,14 @@ const db = {
   }
 };
 
+// Check if Supabase is configured, use it if available, otherwise use JSON file
+const { db: supabaseDb } = require('./supabase');
+
+// Use Supabase if available, otherwise fall back to JSON file
+const USE_SUPABASE = process.env.USE_SUPABASE === 'true' || (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+
 module.exports = {
-  db,
-  initializeDatabase
+  db: USE_SUPABASE ? supabaseDb : db,
+  initializeDatabase,
+  USE_SUPABASE
 };

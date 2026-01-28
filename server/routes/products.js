@@ -7,10 +7,10 @@ const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
 // Get all products
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { category, search, minPrice, maxPrice, sort } = req.query;
-    let products = db.get('products').value();
+    let products = await db.get('products').value();
 
     // Filter by category
     if (category) {
@@ -50,9 +50,9 @@ router.get('/', (req, res) => {
 });
 
 // Get product by ID
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const product = db.get('products').find({ id: req.params.id }).value();
+    const product = await db.get('products').find({ id: req.params.id }).value();
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -68,7 +68,7 @@ router.post('/', authenticateToken, [
   body('price').isFloat({ min: 0 }),
   body('stock').isInt({ min: 0 }),
   body('category').trim().notEmpty()
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -90,7 +90,7 @@ router.post('/', authenticateToken, [
       createdAt: new Date().toISOString()
     };
 
-    db.get('products').push(product).write();
+    await db.get('products').push(product);
     res.status(201).json(product);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -98,17 +98,17 @@ router.post('/', authenticateToken, [
 });
 
 // Update product
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const product = db.get('products').find({ id: req.params.id }).value();
+    const product = await db.get('products').find({ id: req.params.id }).value();
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
     const updates = req.body;
-    db.get('products').find({ id: req.params.id }).assign(updates).write();
+    await db.get('products').find({ id: req.params.id }).assign(updates);
     
-    const updatedProduct = db.get('products').find({ id: req.params.id }).value();
+    const updatedProduct = await db.get('products').find({ id: req.params.id }).value();
     res.json(updatedProduct);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -116,14 +116,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 });
 
 // Delete product
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const product = db.get('products').find({ id: req.params.id }).value();
+    const product = await db.get('products').find({ id: req.params.id }).value();
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    db.get('products').remove({ id: req.params.id }).write();
+    await db.get('products').find({ id: req.params.id }).remove();
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

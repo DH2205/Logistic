@@ -10,33 +10,35 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Get user cart
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    let cart = db.get('carts').find({ userId: req.userId }).value();
+    let cart = await db.get('carts').find({ userId: req.userId }).value();
     if (!cart) {
       cart = { userId: req.userId, items: [] };
-      db.get('carts').push(cart);
+      await db.get('carts').push(cart);
     }
 
     // Populate product details
-    const cartItems = cart.items.map(item => {
-      const product = db.get('products').find({ id: item.productId }).value();
-      if (product) {
-        return {
-          ...item,
-          product: {
-            id: product.id,
-            name: product.name,
-            price: product.price,
-            image: product.image,
-            stock: product.stock
-          }
-        };
-      }
-      return null;
-    }).filter(item => item !== null);
+    const cartItems = await Promise.all(
+      cart.items.map(async (item) => {
+        const product = await db.get('products').find({ id: item.productId }).value();
+        if (product) {
+          return {
+            ...item,
+            product: {
+              id: product.id,
+              name: product.name,
+              price: product.price,
+              image: product.image,
+              stock: product.stock
+            }
+          };
+        }
+        return null;
+      })
+    );
 
-    res.json({ items: cartItems });
+    res.json({ items: cartItems.filter(item => item !== null) });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -46,7 +48,7 @@ router.get('/', (req, res) => {
 router.post('/', [
   body('productId').notEmpty(),
   body('quantity').isInt({ min: 1 })
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -56,7 +58,7 @@ router.post('/', [
     const { productId, quantity } = req.body;
 
     // Check if product exists
-    const product = db.get('products').find({ id: productId }).value();
+    const product = await db.get('products').find({ id: productId }).value();
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -67,11 +69,11 @@ router.post('/', [
     }
 
     // Get or create cart
-    let cart = db.get('carts').find({ userId: req.userId }).value();
+    let cart = await db.get('carts').find({ userId: req.userId }).value();
     if (!cart) {
       cart = { userId: req.userId, items: [] };
-      db.get('carts').push(cart);
-      cart = db.get('carts').find({ userId: req.userId }).value();
+      await db.get('carts').push(cart);
+      cart = await db.get('carts').find({ userId: req.userId }).value();
     }
     
     // Check if item already in cart
@@ -94,8 +96,8 @@ router.post('/', [
       }];
     }
 
-    db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
-    const updatedCart = db.get('carts').find({ userId: req.userId }).value();
+    await db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
+    const updatedCart = await db.get('carts').find({ userId: req.userId }).value();
     res.json({ message: 'Item added to cart', cart: updatedCart });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -105,7 +107,7 @@ router.post('/', [
 // Update cart item
 router.put('/:itemId', [
   body('quantity').isInt({ min: 1 })
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -115,7 +117,7 @@ router.put('/:itemId', [
     const { itemId } = req.params;
     const { quantity } = req.body;
 
-    const cart = db.get('carts').find({ userId: req.userId }).value();
+    const cart = await db.get('carts').find({ userId: req.userId }).value();
     if (!cart) {
       return res.status(404).json({ message: 'Cart not found' });
     }
@@ -125,7 +127,7 @@ router.put('/:itemId', [
       return res.status(404).json({ message: 'Item not found in cart' });
     }
 
-    const product = db.get('products').find({ id: item.productId }).value();
+    const product = await db.get('products').find({ id: item.productId }).value();
     if (!product || product.stock < quantity) {
       return res.status(400).json({ message: 'Insufficient stock' });
     }
@@ -133,7 +135,7 @@ router.put('/:itemId', [
     const updatedItems = cart.items.map(item => 
       item.id === itemId ? { ...item, quantity } : item
     );
-    db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
+    await db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
     res.json({ message: 'Cart item updated' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -141,17 +143,17 @@ router.put('/:itemId', [
 });
 
 // Remove item from cart
-router.delete('/:itemId', (req, res) => {
+router.delete('/:itemId', async (req, res) => {
   try {
     const { itemId } = req.params;
 
-    const cart = db.get('carts').find({ userId: req.userId }).value();
+    const cart = await db.get('carts').find({ userId: req.userId }).value();
     if (!cart) {
       return res.status(404).json({ message: 'Cart not found' });
     }
 
     const updatedItems = cart.items.filter(item => item.id !== itemId);
-    db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
+    await db.get('carts').find({ userId: req.userId }).assign({ items: updatedItems });
     res.json({ message: 'Item removed from cart' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -159,9 +161,9 @@ router.delete('/:itemId', (req, res) => {
 });
 
 // Clear cart
-router.delete('/', (req, res) => {
+router.delete('/', async (req, res) => {
   try {
-    db.get('carts').find({ userId: req.userId }).assign({ items: [] });
+    await db.get('carts').find({ userId: req.userId }).assign({ items: [] });
     res.json({ message: 'Cart cleared' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
