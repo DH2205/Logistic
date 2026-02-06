@@ -9,8 +9,14 @@ import { useRouter } from 'next/navigation';
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
+
+  // Fix hydration mismatch - only render after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -22,17 +28,26 @@ export default function OrdersPage() {
 
   const fetchOrders = async () => {
     try {
+      console.log('📡 Fetching orders...');
       const response = await ordersAPI.getAll();
+      console.log('✅ Orders received:', response.data);
       setOrders(response.data);
       setLoading(false);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      console.error('❌ Error fetching orders:', error);
       setLoading(false);
     }
   };
 
-  if (!user) {
-    return null;
+  // Show nothing during SSR to prevent hydration mismatch
+  if (!mounted || !user) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-600"></div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -40,7 +55,7 @@ export default function OrdersPage() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-gray-900">My Orders</h1>
         <Link
-          href="/orders/create"
+          href="/create-order"
           className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition font-semibold"
         >
           Create New Order
@@ -59,7 +74,7 @@ export default function OrdersPage() {
             Create your first order to start tracking shipments
           </p>
           <Link
-            href="/orders/create"
+            href="/create-order"
             className="inline-block bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition font-semibold"
           >
             Create Order

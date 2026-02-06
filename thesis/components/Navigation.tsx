@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,6 +8,12 @@ import { useAuth } from '@/contexts/AuthContext';
 const Navigation = () => {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  // Only render auth-dependent content after mounting to prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -32,7 +39,13 @@ const Navigation = () => {
               Database
             </Link>
             
-            {user ? (
+            {!mounted ? (
+              // Render placeholder during SSR to match initial client render
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-6"></div>
+                <div className="w-24 h-10"></div>
+              </div>
+            ) : user ? (
               <>
                 <Link href="/orders" className="text-gray-700 hover:text-red-600">
                   Orders

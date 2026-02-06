@@ -15,8 +15,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find user
-    const user = await db.get('users').find({ email }).value();
+    // Find user - handle both email and email field variations
+    let user = await db.get('users').find({ email }).value();
+    
+    // If not found, try case-insensitive search
+    if (!user) {
+      const allUsers = await db.get('users').value();
+      user = allUsers.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+    }
+    
     if (!user) {
       return NextResponse.json(
         { message: 'Invalid credentials' },
@@ -36,6 +43,7 @@ export async function POST(request: NextRequest) {
     // Generate token
     const token = generateToken(user.id);
 
+    // Return user data (exclude password)
     return NextResponse.json({
       message: 'Login successful',
       token,
@@ -43,9 +51,9 @@ export async function POST(request: NextRequest) {
         id: user.id,
         email: user.email,
         name: user.name,
-        phone: user.phone,
-        address: user.address,
-        role: user.role
+        phone: user.phone || '',
+        address: user.address || '',
+        role: user.role || 'user'
       }
     });
   } catch (error: any) {

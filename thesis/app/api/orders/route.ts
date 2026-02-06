@@ -21,9 +21,62 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const orders = await db.get('orders').filter({ userId: authResult.userId }).value();
-    return NextResponse.json(orders);
+    // Fetch orders using correct database field name (snake_case)
+    const orders = await db.get('orders').filter({ user_id: authResult.userId }).value();
+    
+    // Transform snake_case to camelCase for frontend
+    const transformedOrders = orders.map((order: any) => ({
+      id: order.id,
+      orderID: order.order_id,  // order_id -> orderID
+      userId: order.user_id,
+      uniqueIdUser: order.unique_id_user,
+      
+      // Sender information
+      senderName: order.sender_name,
+      senderPhone: order.sender_phone,
+      senderEmail: order.sender_email,
+      senderAddress: order.sender_address,
+      
+      // Receiver information
+      receiverName: order.receiver_name,
+      receiverAddress: order.receiver_address,
+      
+      // Package information
+      packageName: order.package_name || `Package for ${order.receiver_name}`,
+      length: order.length,
+      width: order.width,
+      height: order.height,
+      weight: order.weight,
+      grossWeight: order.gross_weight,
+      measurements: order.measurements || `${order.length}x${order.width}x${order.height} cm`,
+      
+      // Shipping information - handle both string and object formats
+      origin: typeof order.origin === 'string' 
+        ? { country: order.origin }
+        : order.origin || { country: order.from_location || 'Unknown' },
+      destination: typeof order.destination === 'string'
+        ? { country: order.destination }
+        : order.destination || { country: order.to_location || 'Unknown' },
+      fromLocation: order.from_location,
+      toLocation: order.to_location,
+      
+      // Status fields
+      status: order.status,
+      deliveryStatus: order.delivery_status,
+      trackingNumber: order.tracking_number,
+      
+      // Timestamps
+      submissionTime: order.submission_time,
+      createdAt: order.created_at,
+      updatedAt: order.updated_at,
+      
+      // Legacy fields
+      customerName: order.customer_name,
+    }));
+    
+    return NextResponse.json(transformedOrders);
   } catch (error: any) {
+    console.error('Error fetching orders:', error);
     return NextResponse.json(
       { message: 'Server error', error: error.message },
       { status: 500 }
@@ -43,73 +96,108 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    
+    // Support both old and new format
     const {
+      orderId,
+      // New format fields
+      senderName,
+      senderPhone,
+      senderEmail,
+      senderAddress,
+      receiverName,
+      receiverAddress,
+      length,
+      width,
+      height,
+      weight,
+      grossWeight,
+      fromLocation,
+      toLocation,
+      // Old format fields (for backwards compatibility)
       packageName,
       measurements,
-      weight,
       customerName,
-      receiverName,
       sender,
       origin,
       destination
     } = body;
 
-    // Basic validation
-    if (!packageName || !measurements || !weight || !customerName || !receiverName || !sender || !origin || !destination) {
+    // Validate required fields (new format)
+    if (!senderName || !receiverName || !weight) {
       return NextResponse.json(
-        { message: 'All order fields are required' },
+        { message: 'Sender name, receiver name, and weight are required' },
         { status: 400 }
       );
     }
 
-    // Generate unique orderID
-    let orderID;
-    let isUnique = false;
-    while (!isUnique) {
-      orderID = generateOrderID();
-      const existingOrder = await db.get('orders').find({ orderID }).value();
-      if (!existingOrder) {
-        isUnique = true;
+    // Use provided orderId or generate a new one
+    let finalOrderId = orderId;
+    if (!finalOrderId) {
+      let isUnique = false;
+      while (!isUnique) {
+        finalOrderId = generateOrderID();
+        const existingOrder = await db.get('orders').find({ orderID: finalOrderId }).value();
+        if (!existingOrder) {
+          isUnique = true;
+        }
       }
     }
 
-    // Get current timestamp for submission time
+    // Get current timestamp
     const submissionTime = new Date().toISOString();
 
-    // Create order
+    // Create order with new structure
     const order = {
       id: uuidv4(),
-      orderID: orderID,
-      userId: authResult.userId,
-      packageName: packageName,
-      measurements: measurements,
+      order_id: finalOrderId,
+      user_id: authResult.userId,
+      unique_id_user: authResult.userId,  // ✅ Link order to user's unique ID
+      
+      // Sender information
+      sender_name: senderName,
+      sender_phone: senderPhone || '',
+      sender_email: senderEmail || '',
+      sender_address: senderAddress || '',
+      
+      // Receiver information
+      receiver_name: receiverName,
+      receiver_address: receiverAddress || '',
+      
+      // Package information
+      length: parseFloat(length) || 0,
+      width: parseFloat(width) || 0,
+      height: parseFloat(height) || 0,
       weight: parseFloat(weight),
-      customerName: customerName,
-      receiverName: receiverName,
-      sender: {
-        name: sender.name,
-        phone: sender.phone,
-        email: sender.email,
-        address: sender.address,
-      },
-      origin: {
-        country: origin.country,
-      },
-      destination: {
-        country: destination.country,
-      },
-      submissionTime: submissionTime,
+      gross_weight: parseFloat(grossWeight) || parseFloat(weight),
+      
+      // Shipping information
+      origin: fromLocation || '',
+      destination: toLocation || '',
+      from_location: fromLocation || '',
+      to_location: toLocation || '',
+      
+      // Status fields
       status: 'pending',
-      deliveryStatus: 'processing',
-      trackingNumber: `TRK${Date.now()}`,
-      createdAt: submissionTime,
-      updatedAt: submissionTime
+      delivery_status: 'pending',
+      tracking_number: `TRK${Date.now()}`,
+      
+      // Timestamps
+      submission_time: submissionTime,
+      created_at: submissionTime,
+      updated_at: submissionTime,
+      
+      // Legacy fields for backwards compatibility
+      package_name: packageName || `Package for ${receiverName}`,
+      measurements: measurements || `${length}x${width}x${height} cm`,
+      customer_name: customerName || senderName,
     };
 
     await db.get('orders').push(order);
 
     return NextResponse.json(order, { status: 201 });
   } catch (error: any) {
+    console.error('Error creating order:', error);
     return NextResponse.json(
       { message: 'Server error', error: error.message },
       { status: 500 }
