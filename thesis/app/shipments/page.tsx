@@ -8,7 +8,7 @@ export default function ShipmentsPage() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Shipments</h1>
         <Link
-          href="/orders/create"
+          href="/create-order"
           className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition font-semibold"
         >
           Create Shipment

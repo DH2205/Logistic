@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { productsAPI, ordersAPI } from '@/lib/api';
+import TransportationMap from '@/components/TransportationMap';
 
 export default function HomePage() {
   const [stats, setStats] = useState({
@@ -47,7 +48,7 @@ export default function HomePage() {
             </p>
             <div className="flex gap-4">
               <Link
-                href="/orders/create"
+                href="/create-order"
                 className="bg-white text-red-600 px-8 py-3 rounded-lg font-semibold hover:bg-red-50 transition shadow-lg"
               >
                 Create Order
@@ -109,6 +110,16 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Transportation Map Section */}
+      <section className="container mx-auto px-4 py-8">
+        <TransportationMap
+          activeRoutes={[]}
+          completedRoutes={[]}
+          pendingRoutes={[]}
+          showControls={true}
+        />
       </section>
 
       {/* Features Section */}

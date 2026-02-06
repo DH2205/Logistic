@@ -6,7 +6,7 @@ const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'deliver
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await authenticateToken(request);
@@ -18,6 +18,9 @@ export async function PUT(
       );
     }
 
+    // Await params Promise in Next.js 16
+    const { id } = await params;
+
     const body = await request.json();
     const { status } = body;
 
@@ -28,7 +31,7 @@ export async function PUT(
       );
     }
 
-    const order = await db.get('orders').find({ id: params.id }).value();
+    const order = await db.get('orders').find({ id: id }).value();
     if (!order) {
       return NextResponse.json(
         { message: 'Order not found' },
@@ -36,12 +39,12 @@ export async function PUT(
       );
     }
 
-    await db.get('orders').find({ id: params.id }).assign({
+    await db.get('orders').find({ id: id }).assign({
       status: status,
       updatedAt: new Date().toISOString()
     });
 
-    const updatedOrder = await db.get('orders').find({ id: params.id }).value();
+    const updatedOrder = await db.get('orders').find({ id: id }).value();
     return NextResponse.json(updatedOrder);
   } catch (error: any) {
     return NextResponse.json(

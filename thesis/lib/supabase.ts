@@ -2,16 +2,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// Prefer service role key for server-side operations (bypasses RLS)
+// Fall back to anon key if service role is not available
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 if (!supabaseUrl || !supabaseKey) {
-  console.warn('⚠️  Supabase credentials not found. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env file');
+  console.warn('⚠️  Supabase credentials not found. Please set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) in your .env file');
+}
+
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn('⚠️  SUPABASE_SERVICE_ROLE_KEY not set. Using anon key which may be subject to RLS policies.');
 }
 
 // Create Supabase client for database operations
 // Note: For auth operations, use the client/server helpers in lib/supabase/
 export const supabase: SupabaseClient | null = supabaseUrl && supabaseKey 
-  ? createClient(supabaseUrl, supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
   : null;
 
 // Database helper object that mimics the JSON file-based API
@@ -158,10 +169,12 @@ export const db = {
       push: async (item: any) => {
         if (!supabase) {
           console.error('Supabase client not initialized');
-          return { write: () => {}, value: () => [] };
+          throw new Error('Supabase client not initialized. Please check your environment variables.');
         }
         
         try {
+          console.log(`Inserting into ${tableName}:`, { ...item, password: item.password ? '[HIDDEN]' : undefined });
+          
           const { data, error } = await supabase
             .from(tableName)
             .insert(item)
@@ -169,20 +182,35 @@ export const db = {
             .single();
           
           if (error) {
-            console.error(`Error inserting into ${tableName}:`, error);
-            return { write: () => {}, value: () => [] };
+            console.error(`Error inserting into ${tableName}:`, {
+              message: error.message,
+              code: error.code,
+              details: error.details,
+              hint: error.hint
+            });
+            
+            // Provide more specific error messages
+            if (error.code === '23505') {
+              throw new Error('Duplicate entry: This record already exists');
+            } else if (error.code === '42501') {
+              throw new Error('Permission denied: Check your Row Level Security policies');
+            } else if (error.message?.includes('permission') || error.message?.includes('policy')) {
+              throw new Error('Database permission error. Please check RLS policies.');
+            }
+            
+            throw new Error(`Database insert error: ${error.message} (Code: ${error.code})`);
           }
           
+          console.log(`Successfully inserted into ${tableName}:`, data?.id || 'unknown');
+          
+          // Return the inserted data
           return {
             write: async () => {},
-            value: async () => {
-              const { data: allData } = await supabase.from(tableName).select('*');
-              return allData || [];
-            }
+            value: async () => data || item
           };
-        } catch (error) {
+        } catch (error: any) {
           console.error(`Error in push for ${tableName}:`, error);
-          return { write: () => {}, value: () => [] };
+          throw error; // Re-throw to allow proper error handling
         }
       },
       
