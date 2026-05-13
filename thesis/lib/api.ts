@@ -32,7 +32,9 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
+    const requestUrl = String(error.config?.url || '');
+    const isLoginRequest = requestUrl.includes('/auth/login');
+    if (error.response?.status === 401 && typeof window !== 'undefined' && !isLoginRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -65,6 +67,7 @@ export const ordersAPI = {
   create: (orderData: any) => api.post('/orders', orderData),
   updateStatus: (id: string, status: string) => api.put(`/orders/${id}/status`, { status }),
   updateDelivery: (id: string, deliveryStatus: string) => api.put(`/orders/${id}/track`, { deliveryStatus }),
+  delete: (id: string) => api.delete(`/orders/${id}`),
 };
 
 // Locations API

@@ -4,10 +4,11 @@ import { authenticateToken } from '@/lib/middleware';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const location = await db.get('locations').find({ id: params.id }).value();
+    const { id } = await params;
+    const location = await db.get('locations').find({ id }).value();
     if (!location) {
       return NextResponse.json(
         { message: 'Location not found' },
@@ -25,7 +26,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await authenticateToken(request);
@@ -37,7 +38,8 @@ export async function PUT(
       );
     }
 
-    const location = await db.get('locations').find({ id: params.id }).value();
+    const { id } = await params;
+    const location = await db.get('locations').find({ id }).value();
     if (!location) {
       return NextResponse.json(
         { message: 'Location not found' },
@@ -55,9 +57,9 @@ export async function PUT(
     if (updates.latitude) updates.latitude = parseFloat(updates.latitude);
     if (updates.longitude) updates.longitude = parseFloat(updates.longitude);
 
-    await db.get('locations').find({ id: params.id }).assign(updates);
+    await db.get('locations').find({ id }).assign(updates);
 
-    const updatedLocation = await db.get('locations').find({ id: params.id }).value();
+    const updatedLocation = await db.get('locations').find({ id }).value();
     return NextResponse.json(updatedLocation);
   } catch (error: any) {
     return NextResponse.json(
@@ -69,7 +71,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await authenticateToken(request);
@@ -81,7 +83,8 @@ export async function DELETE(
       );
     }
 
-    const location = await db.get('locations').find({ id: params.id }).value();
+    const { id } = await params;
+    const location = await db.get('locations').find({ id }).value();
     if (!location) {
       return NextResponse.json(
         { message: 'Location not found' },
@@ -89,7 +92,7 @@ export async function DELETE(
       );
     }
 
-    await db.get('locations').find({ id: params.id }).remove();
+    await db.get('locations').find({ id }).remove();
 
     return NextResponse.json({ message: 'Location deleted successfully' });
   } catch (error: any) {

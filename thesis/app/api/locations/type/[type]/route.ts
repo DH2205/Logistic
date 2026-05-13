@@ -3,10 +3,10 @@ import { db } from '@/lib/database';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { type: string } }
+  { params }: { params: Promise<{ type: string }> }
 ) {
   try {
-    const { type } = params;
+    const { type } = await params;
     const validTypes = ['storage', 'airport', 'seaport'];
     
     if (!validTypes.includes(type)) {

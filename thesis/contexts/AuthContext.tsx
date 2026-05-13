@@ -71,6 +71,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return {
         success: false,
         error: error.response?.data?.message || 'Registration failed',
+        // Pass field-level errors through so the form can highlight them
+        errors: error.response?.data?.errors,
       };
     }
   };

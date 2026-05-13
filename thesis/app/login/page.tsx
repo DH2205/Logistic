@@ -24,7 +24,12 @@ export default function LoginPage() {
     if (result.success) {
       router.push('/');
     } else {
-      setError(result.error || 'Login failed');
+      const rawError = result.error || 'Login failed';
+      if (rawError.toLowerCase().includes('invalid credentials')) {
+        setError('Incorrect email or password. Please try again.');
+      } else {
+        setError(rawError);
+      }
     }
   };
 
@@ -47,7 +52,11 @@ export default function LoginPage() {
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded"
+            >
               {error}
             </div>
           )}

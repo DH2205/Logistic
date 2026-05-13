@@ -1,0 +1,40 @@
+Supabase DB Dijkstra Paths (tables graph)
+Schemas: public
+Direction: undirected
+Tables: 5
+FK edges: 1
+
+=== Edges (FK relationships) ===
+public.orders -> public.users  [orders_user_id_fkey]
+
+=== Shortest paths (unit weight) ===
+
+-- From: public.locations
+public.order_ups: (unreachable)
+public.orders: (unreachable)
+public.products: (unreachable)
+public.users: (unreachable)
+
+-- From: public.order_ups
+public.locations: (unreachable)
+public.orders: (unreachable)
+public.products: (unreachable)
+public.users: (unreachable)
+
+-- From: public.orders
+public.locations: (unreachable)
+public.order_ups: (unreachable)
+public.products: (unreachable)
+public.users: public.orders -> public.users (hops=1)
+
+-- From: public.products
+public.locations: (unreachable)
+public.order_ups: (unreachable)
+public.orders: (unreachable)
+public.users: (unreachable)
+
+-- From: public.users
+public.locations: (unreachable)
+public.order_ups: (unreachable)
+public.orders: public.users -> public.orders (hops=1)
+public.products: (unreachable)

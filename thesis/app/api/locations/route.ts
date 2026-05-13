@@ -5,8 +5,28 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function GET(request: NextRequest) {
   try {
-    const locations = await db.get('locations').value();
-    return NextResponse.json(locations || []);
+    // Supabase default row limit is 1 000 — fetch in pages of 1 000 to get all rows
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const client = createClient(supabaseUrl, supabaseKey);
+
+    let allLocations: any[] = [];
+    let from = 0;
+    const PAGE = 1000;
+
+    while (true) {
+      const { data, error } = await client
+        .from('locations')
+        .select('*')
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      allLocations = allLocations.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+
+    return NextResponse.json(allLocations);
   } catch (error: any) {
     return NextResponse.json(
       { message: 'Server error', error: error.message },
