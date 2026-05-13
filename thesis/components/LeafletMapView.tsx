@@ -64,6 +64,8 @@ export interface GeocodedRoute {
   order_id: string;
   from: { name: string; lat: number; lng: number };
   to: { name: string; lat: number; lng: number };
+  /** Intermediate hubs (ordered) for multi-segment map lines */
+  via?: { name: string; lat: number; lng: number }[];
   status: string;
 }
 
@@ -92,6 +94,8 @@ export interface LeafletMapViewProps {
   reroutedPath?: RouteWaypoint[];
   /** Whether the straight route is blocked by a disruption */
   originalRouteBlocked?: boolean;
+  /** Multi-point “at-risk” corridor (thesis baseline or UPS legs) for grey dashed preview */
+  blockedPreviewPath?: RouteWaypoint[];
 }
 
 function MapBoundsUpdater({
@@ -308,6 +312,20 @@ function createPackageIcon(): L.DivIcon {
   });
 }
 
+/** Position at fraction t ∈ [0,1] along a polyline through ordered points. */
+function pointOnPolylinePath(
+  path: { lat: number; lng: number }[],
+  t: number
+): { lat: number; lng: number } {
+  if (path.length === 0) return { lat: 0, lng: 0 };
+  if (path.length === 1) return path[0];
+  const n = path.length - 1;
+  const tt = Math.max(0, Math.min(1, t)) * n;
+  const i = Math.min(Math.floor(tt), n - 1);
+  const localT = tt - i;
+  return lerp(path[i], path[i + 1], localT);
+}
+
 /**
  * Returns the normalised 0–1 position of the package along the route
  * based on the delivery status of the tracked order.
@@ -329,6 +347,7 @@ export default function LeafletMapView({
   disruptionZones = [],
   reroutedPath,
   originalRouteBlocked = false,
+  blockedPreviewPath,
 }: LeafletMapViewProps) {
   // Guard: Leaflet requires the real DOM. Don't render anything on the first
   // server pass or before the client has fully mounted — otherwise Popup's
@@ -440,17 +459,16 @@ export default function LeafletMapView({
       {displayedRoutes.map((route) => {
         const isHighlighted = route.order_id === highlightedOrderId;
         const color = getRouteColor(route.status);
-        const bearing = getBearing(route.from, route.to);
-        // Arrow sits exactly at the destination endpoint
-        const arrowPos = route.to;
-        // Package sits along the line based on delivery status (only for highlighted route)
+        const fullPath = [route.from, ...(route.via ?? []), route.to];
+        const bearing =
+          fullPath.length >= 2
+            ? getBearing(fullPath[fullPath.length - 2], fullPath[fullPath.length - 1])
+            : getBearing(route.from, route.to);
+        const arrowPos = fullPath[fullPath.length - 1];
         const pkgPos = isHighlighted
-          ? lerp(route.from, route.to, packageT(trackedOrderStatus))
+          ? pointOnPolylinePath(fullPath, packageT(trackedOrderStatus))
           : null;
 
-        // Split along the shorter geographic arc so Vietnam→US draws over the
-        // Pacific rather than westward through the Middle East / Europe.
-        const segments = getRouteSegments(route.from, route.to);
         const polylineProps = {
           color,
           weight: isHighlighted ? 5 : highlightedOrderId ? 2 : 3,
@@ -467,6 +485,12 @@ export default function LeafletMapView({
                 <p className="text-gray-600">
                   <span className="font-medium">From:</span> {route.from.name}
                 </p>
+                {route.via && route.via.length > 0 && (
+                  <p className="text-gray-600">
+                    <span className="font-medium">Via:</span>{' '}
+                    {route.via.map((v) => v.name).join(' → ')}
+                  </p>
+                )}
                 <p className="text-gray-600">
                   <span className="font-medium">To:</span> {route.to.name}
                 </p>
@@ -479,14 +503,29 @@ export default function LeafletMapView({
           </Popup>
         );
 
+        let segKey = 0;
+        const polylineNodes: React.ReactNode[] = [];
+        let popupAttached = false;
+        for (let li = 0; li < fullPath.length - 1; li++) {
+          const segs = getRouteSegments(fullPath[li], fullPath[li + 1]);
+          for (const seg of segs) {
+            const attachPopup = !popupAttached;
+            if (attachPopup) popupAttached = true;
+            polylineNodes.push(
+              <Polyline
+                key={`seg-${route.id}-${segKey++}`}
+                positions={seg}
+                {...polylineProps}
+              >
+                {attachPopup ? routePopup : null}
+              </Polyline>
+            );
+          }
+        }
+
         return (
           <React.Fragment key={`route-${route.id}`}>
-            {/* Route line — may be 1 or 2 segments (antimeridian split) */}
-            {segments.map((seg, si) => (
-              <Polyline key={`seg-${route.id}-${si}`} positions={seg} {...polylineProps}>
-                {si === 0 && routePopup}
-              </Polyline>
-            ))}
+            {polylineNodes}
 
             {/* Directional arrow marker */}
             <Marker
@@ -545,50 +584,108 @@ export default function LeafletMapView({
         </Rectangle>
       ))}
 
-      {/* ── Rerouted path (Dijkstra alternative) ───────────────────────── */}
+      {/* ── Blocked / at-risk preview (grey dashed) — not tied to green reroute ── */}
+      {originalRouteBlocked && displayedRoutes.length > 0 && (
+        <>
+          {blockedPreviewPath && blockedPreviewPath.length >= 2
+            ? (() => {
+                const nodes: React.ReactNode[] = [];
+                let si = 0;
+                for (let li = 0; li < blockedPreviewPath.length - 1; li++) {
+                  const a = blockedPreviewPath[li];
+                  const b = blockedPreviewPath[li + 1];
+                  const segs = getRouteSegments(
+                    { lat: a.lat, lng: a.lng },
+                    { lat: b.lat, lng: b.lng }
+                  );
+                  for (const seg of segs) {
+                    const isFirstSeg = si === 0;
+                    nodes.push(
+                      <Polyline
+                        key={`blocked-seg-${si++}`}
+                        positions={seg}
+                        color="#9ca3af"
+                        weight={3}
+                        opacity={0.65}
+                        dashArray="10, 8"
+                      >
+                        {isFirstSeg && (
+                          <Tooltip sticky>
+                            <span className="text-xs text-gray-600">
+                              ⛔ At-risk corridor (thesis / planned lane)
+                            </span>
+                          </Tooltip>
+                        )}
+                      </Polyline>
+                    );
+                  }
+                }
+                return nodes;
+              })()
+            : getRouteSegments(displayedRoutes[0].from, displayedRoutes[0].to).map(
+                (seg, si) => (
+                  <Polyline
+                    key={`blocked-seg-${si}`}
+                    positions={seg}
+                    color="#9ca3af"
+                    weight={3}
+                    opacity={0.6}
+                    dashArray="10, 8"
+                  >
+                    {si === 0 && (
+                      <Tooltip sticky>
+                        <span className="text-xs text-gray-600">
+                          ⛔ Original route (blocked)
+                        </span>
+                      </Tooltip>
+                    )}
+                  </Polyline>
+                )
+              )}
+        </>
+      )}
+
+      {/* ── Dijkstra reroute (green) + hub markers ─────────────────────── */}
       {reroutedPath && reroutedPath.length >= 2 && (
         <React.Fragment>
-          {/* Original straight route — grey dashed, shown only when blocked */}
-          {originalRouteBlocked && displayedRoutes.length > 0 && (
-            <>
-              {getRouteSegments(displayedRoutes[0].from, displayedRoutes[0].to).map((seg, si) => (
-                <Polyline
-                  key={`blocked-seg-${si}`}
-                  positions={seg}
-                  color="#9ca3af"
-                  weight={3}
-                  opacity={0.6}
-                  dashArray="10, 8"
-                >
-                  {si === 0 && (
-                    <Tooltip sticky>
-                      <span className="text-xs text-gray-600">⛔ Original route (blocked)</span>
-                    </Tooltip>
-                  )}
-                </Polyline>
-              ))}
-            </>
-          )}
+          {(() => {
+            const greenNodes: React.ReactNode[] = [];
+            let gk = 0;
+            for (let li = 0; li < reroutedPath.length - 1; li++) {
+              const a = reroutedPath[li];
+              const b = reroutedPath[li + 1];
+              const segs = getRouteSegments(
+                { lat: a.lat, lng: a.lng },
+                { lat: b.lat, lng: b.lng }
+              );
+              for (const seg of segs) {
+                const isFirstGreenSeg = gk === 0;
+                greenNodes.push(
+                  <Polyline
+                    key={`reroute-seg-${gk++}`}
+                    positions={seg}
+                    color="#16a34a"
+                    weight={4}
+                    opacity={0.9}
+                  >
+                    {isFirstGreenSeg && (
+                      <Tooltip sticky>
+                        <div className="text-xs font-semibold text-green-700">
+                          🔄 Dijkstra Reroute
+                          <br />
+                          <span className="font-normal text-gray-700">
+                            {reroutedPath.map((w) => w.name).join(' → ')}
+                          </span>
+                        </div>
+                      </Tooltip>
+                    )}
+                  </Polyline>
+                );
+              }
+            }
+            return greenNodes;
+          })()}
 
-          {/* Safe alternative — solid green */}
-          <Polyline
-            positions={reroutedPath.map((w) => [w.lat, w.lng])}
-            color="#16a34a"
-            weight={4}
-            opacity={0.9}
-          >
-            <Tooltip sticky>
-              <div className="text-xs font-semibold text-green-700">
-                🔄 Dijkstra Reroute
-                <br />
-                <span className="font-normal text-gray-700">
-                  {reroutedPath.map((w) => w.name).join(' → ')}
-                </span>
-              </div>
-            </Tooltip>
-          </Polyline>
-
-          {/* Hub waypoint markers along the rerouted path */}
           {reroutedPath.map((wp, i) => (
             <Marker
               key={`reroute-wp-${wp.id}`}

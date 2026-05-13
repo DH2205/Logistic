@@ -684,7 +684,7 @@ const SEVERITY_MULTIPLIER: Record<string, number> = {
   critical: Infinity,
 };
 
-/** Edge weight — Infinity means completely blocked. */
+/** Edge weight — hard-block edges that touch high/critical zones (no “penalty path” through war zones). */
 function edgeWeight(
   edge: RouteEdge,
   hubById: Map<string, Hub>,
@@ -695,17 +695,23 @@ function edgeWeight(
   let multiplier = 1;
 
   for (const d of disruptions) {
-    const m = SEVERITY_MULTIPLIER[d.severity] ?? 1;
-    if (m === Infinity) {
-      if (hubInBbox(a, d.bbox) || hubInBbox(b, d.bbox) || arcIntersectsBbox(a, b, d.bbox))
-        return Infinity;
-    } else if (
+    const sev = d.severity ?? 'medium';
+    const touches =
       hubInBbox(a, d.bbox) ||
       hubInBbox(b, d.bbox) ||
-      arcIntersectsBbox(a, b, d.bbox)
-    ) {
-      multiplier = Math.max(multiplier, m);
+      arcIntersectsBbox(a, b, d.bbox, 48);
+
+    if (!touches) continue;
+
+    // War / closure zones at high+ severity must not be traversed (VN→BR was still
+    // cutting through the Gulf when “high” only applied a 100× cost).
+    if (sev === 'critical' || sev === 'high') {
+      return Infinity;
     }
+
+    const m = SEVERITY_MULTIPLIER[sev] ?? 1;
+    if (m === Infinity) return Infinity;
+    multiplier = Math.max(multiplier, m);
   }
 
   return edge.distanceKm * multiplier;
@@ -801,6 +807,111 @@ export function directRouteBlocked(
     if (arcIntersectsBbox(a, b, d.bbox, 40)) return true;
   }
   return false;
+}
+
+/**
+ * True if any segment of a lat/lng polyline intersects any disruption bbox.
+ */
+export function polylineIntersectsDisruption(
+  points: { lat: number; lng: number }[],
+  disruptions: DisruptionZoneInput[]
+): boolean {
+  if (points.length < 2 || disruptions.length === 0) return false;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    for (const d of disruptions) {
+      if (arcIntersectsBbox(a, b, d.bbox, 40)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Broad Asia–Pacific origin → Americas destination: use thesis “Indo–Med–Atlantic”
+ * planning corridor (VN→SG→IN→AE→Suez→Europe→US) for conflict-zone demos.
+ * Real UPS flights may be Trans-Pacific and miss the box; thesis evaluates this strategic lane.
+ */
+export function qualifiesAsiaAmericasThesisBaseline(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number
+): boolean {
+  const originAsia =
+    fromLat >= -15 &&
+    fromLat <= 55 &&
+    fromLng >= 92 &&
+    fromLng <= 160;
+  const destAmericas =
+    toLat >= -55 &&
+    toLat <= 72 &&
+    toLng <= -40 &&
+    toLng >= -168;
+  return originAsia && destAmericas;
+}
+
+/**
+ * Hub chain for screenshots / thesis: maritime–air corridor through ME/Suez (crosses Gulf hubs).
+ */
+export function getThesisStrategicBaselineWaypoints(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  hubs: Hub[] = LOGISTICS_HUBS
+): RouteWaypoint[] {
+  const hubById = new Map(hubs.map((h) => [h.id, h]));
+  const endHub = findNearestHub(toLat, toLng, hubs);
+
+  const corridorIds: string[] = ['SG', 'IN', 'AE', 'EG', 'FR', 'GB', 'US_NY'];
+  if (
+    endHub.id === 'US_LA' ||
+    endHub.id === 'US_CH' ||
+    endHub.id === 'CA'
+  ) {
+    corridorIds.push(endHub.id);
+  }
+
+  const wps: RouteWaypoint[] = [
+    {
+      id: '_origin',
+      name: 'Origin',
+      lat: fromLat,
+      lng: fromLng,
+    },
+    ...corridorIds.map((id) => {
+      const h = hubById.get(id)!;
+      return { id: h.id, name: h.name, lat: h.lat, lng: h.lng };
+    }),
+    {
+      id: '_dest',
+      name: 'Destination',
+      lat: toLat,
+      lng: toLng,
+    },
+  ];
+  return wps;
+}
+
+/** True when the thesis Indo–Med corridor hits an active disruption (e.g. Gulf conflict). */
+export function thesisStrategicCorridorBlocked(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+  disruptions: DisruptionZoneInput[]
+): boolean {
+  if (!disruptions.length) return false;
+  if (!qualifiesAsiaAmericasThesisBaseline(fromLat, fromLng, toLat, toLng)) return false;
+  const baseline = getThesisStrategicBaselineWaypoints(
+    fromLat,
+    fromLng,
+    toLat,
+    toLng
+  );
+  const pts = baseline.map((w) => ({ lat: w.lat, lng: w.lng }));
+  return polylineIntersectsDisruption(pts, disruptions);
 }
 
 /**

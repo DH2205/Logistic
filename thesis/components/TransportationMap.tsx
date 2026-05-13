@@ -8,6 +8,10 @@ import {
   regionToBbox,
   findReroute,
   directRouteBlocked,
+  polylineIntersectsDisruption,
+  thesisStrategicCorridorBlocked,
+  getThesisStrategicBaselineWaypoints,
+  qualifiesAsiaAmericasThesisBaseline,
   DEMO_DISRUPTION,
   DEMO_ORDER,
   DEMO_FROM,
@@ -41,6 +45,8 @@ interface GeocodedRoute {
   order_id: string;
   from: { name: string; lat: number; lng: number };
   to: { name: string; lat: number; lng: number };
+  /** Intermediate hubs (ordered) — when set, the map draws a polyline through each leg */
+  via?: { name: string; lat: number; lng: number }[];
   status: string;
 }
 
@@ -263,6 +269,8 @@ export default function TransportationMap({
   // originalPathBlocked: true when the straight route crossed a zone
   const [reroutedPath, setReroutedPath] = useState<RouteWaypoint[] | null>(null);
   const [originalPathBlocked, setOriginalPathBlocked] = useState(false);
+  /** Grey dashed “blocked” preview: thesis corridor, UPS multi-leg, or straight chord */
+  const [blockedPreviewPath, setBlockedPreviewPath] = useState<RouteWaypoint[] | null>(null);
   const [rerouteInfo, setRerouteInfo] = useState<{
     extraKm: number;
     blockedBy: string[];
@@ -745,14 +753,18 @@ export default function TransportationMap({
   }, [highlightedOrderId, filteredPoints, displayedRoutes]);
 
   // Whenever trackedOrder changes (initial fetch OR after background refresh),
-  // (re-)build a synthetic GeocodedRoute from the live UPS location strings.
-  // fromLocation / toLocation are written by sync-tracking, so after the first
-  // background refresh they reflect the real UPS origin and current/delivered location.
+  // (re-)build a GeocodedRoute from UPS scan history when available (realistic
+  // hub path: e.g. HCM → HK → ANC → SDF → OAK → Alameda), else from/to only.
   useEffect(() => {
     if (!trackedOrder) {
       setTrackedOrderRoute(null);
       return;
     }
+
+    let cancelled = false;
+
+    const orderId: string = trackedOrder.orderId ?? highlightedOrderId ?? 'tracked';
+    const activityPath: string[] | undefined = trackedOrder.activityPath;
 
     const fromLoc: string =
       trackedOrder.fromLocation ||
@@ -763,20 +775,60 @@ export default function TransportationMap({
       (typeof trackedOrder.destination === 'object' ? trackedOrder.destination?.country : trackedOrder.destination) ||
       '';
 
-    if (!fromLoc && !toLoc) return;
-
     (async () => {
+      // Prefer full chronological UPS scan path (requires successful /refresh sync)
+      if (activityPath && activityPath.length >= 2) {
+        const coords = await Promise.all(
+          activityPath.map((loc) => (loc ? geocodeLocation(loc) : Promise.resolve(null))),
+        );
+        if (cancelled) return;
+        const points: { name: string; lat: number; lng: number }[] = [];
+        for (let i = 0; i < activityPath.length; i++) {
+          const c = coords[i];
+          if (!c) continue;
+          const name = activityPath[i];
+          const prev = points[points.length - 1];
+          if (
+            prev &&
+            Math.abs(prev.lat - c.lat) < 0.02 &&
+            Math.abs(prev.lng - c.lng) < 0.02
+          ) {
+            continue;
+          }
+          points.push({ name, lat: c.lat, lng: c.lng });
+        }
+        if (points.length >= 2) {
+          const from = points[0];
+          const to = points[points.length - 1];
+          const via = points.length > 2 ? points.slice(1, -1) : undefined;
+          if (!cancelled) {
+            setTrackedOrderRoute({
+              id: `ups-${orderId}`,
+              order_id: orderId,
+              from,
+              to,
+              via,
+              status: trackedOrder.deliveryStatus || trackedOrder.status || 'pending',
+            });
+          }
+          return;
+        }
+      }
+
+      if (!fromLoc && !toLoc) return;
+
       const [fromCoords, toCoords] = await Promise.all([
         fromLoc ? geocodeLocation(fromLoc) : Promise.resolve(null),
         toLoc ? geocodeLocation(toLoc) : Promise.resolve(null),
       ]);
+
+      if (cancelled) return;
 
       if (!fromCoords || !toCoords) {
         console.warn(`[TransportationMap] Could not geocode tracked order locations: "${fromLoc}" → "${toLoc}"`);
         return;
       }
 
-      const orderId: string = trackedOrder.orderId ?? highlightedOrderId ?? 'tracked';
       setTrackedOrderRoute({
         id: `ups-${orderId}`,
         order_id: orderId,
@@ -785,28 +837,38 @@ export default function TransportationMap({
         status: trackedOrder.deliveryStatus || trackedOrder.status || 'pending',
       });
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [trackedOrder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Zoom the map to the synthetic (UPS-derived) route whenever it is built or updated
   useEffect(() => {
     if (!trackedOrderRoute || !mapRef.current || !leafletLib) return;
     try {
-      const bounds = leafletLib.latLngBounds([
+      const pts: [number, number][] = [
         [trackedOrderRoute.from.lat, trackedOrderRoute.from.lng],
-        [trackedOrderRoute.to.lat,   trackedOrderRoute.to.lng],
-      ]);
+        ...(trackedOrderRoute.via?.map((v) => [v.lat, v.lng] as [number, number]) ?? []),
+        [trackedOrderRoute.to.lat, trackedOrderRoute.to.lng],
+      ];
+      const bounds = leafletLib.latLngBounds(pts);
       mapRef.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 5 });
-      console.log(`✅ Map zoomed to UPS route: ${trackedOrderRoute.from.name} → ${trackedOrderRoute.to.name}`);
+      const viaMsg = trackedOrderRoute.via?.length
+        ? ` via ${trackedOrderRoute.via.length} hub(s)`
+        : '';
+      console.log(`✅ Map zoomed to UPS route: ${trackedOrderRoute.from.name} → ${trackedOrderRoute.to.name}${viaMsg}`);
     } catch {
       // map not ready yet
     }
-  }, [trackedOrderRoute]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trackedOrderRoute, activeDisruptionZones.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Disruption rerouting — runs whenever the displayed route or active disruptions change
   useEffect(() => {
     if (!trackedOrderRoute || activeDisruptionZones.length === 0) {
       setReroutedPath(null);
       setOriginalPathBlocked(false);
+      setBlockedPreviewPath(null);
       setRerouteInfo(null);
       return;
     }
@@ -816,8 +878,74 @@ export default function TransportationMap({
     const toLat   = trackedOrderRoute.to.lat;
     const toLng   = trackedOrderRoute.to.lng;
 
-    const blocked = directRouteBlocked(fromLat, fromLng, toLat, toLng, activeDisruptionZones);
+    const fullUpsPath =
+      trackedOrderRoute.via && trackedOrderRoute.via.length > 0
+        ? [trackedOrderRoute.from, ...trackedOrderRoute.via, trackedOrderRoute.to]
+        : null;
+    const upsBlocked = fullUpsPath
+      ? polylineIntersectsDisruption(
+          fullUpsPath.map((p) => ({ lat: p.lat, lng: p.lng })),
+          activeDisruptionZones
+        )
+      : false;
+
+    const chordBlocked = directRouteBlocked(
+      fromLat,
+      fromLng,
+      toLat,
+      toLng,
+      activeDisruptionZones
+    );
+
+    const thesisBlocked = thesisStrategicCorridorBlocked(
+      fromLat,
+      fromLng,
+      toLat,
+      toLng,
+      activeDisruptionZones
+    );
+
+    const blocked = chordBlocked || upsBlocked || thesisBlocked;
     setOriginalPathBlocked(blocked);
+
+    /** Grey dashed overlay: prefer thesis Indo–Med corridor for Asia→Americas demos */
+    let preview: RouteWaypoint[] | null = null;
+    if (blocked) {
+      if (
+        thesisBlocked &&
+        qualifiesAsiaAmericasThesisBaseline(fromLat, fromLng, toLat, toLng)
+      ) {
+        preview = getThesisStrategicBaselineWaypoints(
+          fromLat,
+          fromLng,
+          toLat,
+          toLng
+        );
+      } else if (upsBlocked && fullUpsPath) {
+        preview = fullUpsPath.map((p, i) => ({
+          id: `${p.name}-${i}`,
+          name: p.name,
+          lat: p.lat,
+          lng: p.lng,
+        }));
+      } else {
+        preview = [
+          {
+            id: '_from',
+            name: trackedOrderRoute.from.name,
+            lat: fromLat,
+            lng: fromLng,
+          },
+          {
+            id: '_to',
+            name: trackedOrderRoute.to.name,
+            lat: toLat,
+            lng: toLng,
+          },
+        ];
+      }
+    }
+    setBlockedPreviewPath(preview);
 
     if (!blocked) {
       setReroutedPath(null);
@@ -826,17 +954,26 @@ export default function TransportationMap({
     }
 
     // Compute alternative via Dijkstra
-    const result = findReroute(fromLat, fromLng, toLat, toLng, activeDisruptionZones);
-    if (result.waypoints.length >= 2) {
-      setReroutedPath(result.waypoints);
-      const directKm = Math.round(
-        Math.sqrt((toLat - fromLat) ** 2 + (toLng - fromLng) ** 2) * 111
-      );
-      setRerouteInfo({
-        extraKm: Math.round(result.totalDistanceKm - directKm),
-        blockedBy: activeDisruptionZones.map((d) => d.name),
-      });
-      console.log(`🔄 Rerouted: ${result.waypoints.map((w) => w.name).join(' → ')}`);
+    try {
+      const result = findReroute(fromLat, fromLng, toLat, toLng, activeDisruptionZones);
+      if (result.waypoints.length >= 2) {
+        setReroutedPath(result.waypoints);
+        const directKm = Math.round(
+          Math.sqrt((toLat - fromLat) ** 2 + (toLng - fromLng) ** 2) * 111
+        );
+        setRerouteInfo({
+          extraKm: Math.round(result.totalDistanceKm - directKm),
+          blockedBy: activeDisruptionZones.map((d) => d.name),
+        });
+        console.log(`🔄 Rerouted: ${result.waypoints.map((w) => w.name).join(' → ')}`);
+      } else {
+        setReroutedPath(null);
+        setRerouteInfo(null);
+      }
+    } catch (e) {
+      console.warn('[TransportationMap] findReroute failed:', e);
+      setReroutedPath(null);
+      setRerouteInfo(null);
     }
   }, [trackedOrderRoute, activeDisruptionZones]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -862,6 +999,7 @@ export default function TransportationMap({
         ? liveStatus : order.status,
       fromLocation: order.fromLocation || trackingUpdate?.originLocation || null,
       toLocation: order.toLocation || trackingUpdate?.latestLocation || null,
+      activityPath: trackingUpdate?.activityPath ?? order.activityPath,
     };
   };
 
@@ -1109,7 +1247,7 @@ export default function TransportationMap({
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-8 border-t-2 border-dashed border-gray-400 flex-shrink-0"></div>
-                    <span className="text-xs text-gray-600">Blocked Route</span>
+                    <span className="text-xs text-gray-600">At-risk corridor (thesis)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-8 border-t-2 border-solid border-green-600 flex-shrink-0"></div>
@@ -1135,6 +1273,7 @@ export default function TransportationMap({
             disruptionZones={activeDisruptionZones}
             reroutedPath={reroutedPath ?? undefined}
             originalRouteBlocked={originalPathBlocked}
+            blockedPreviewPath={blockedPreviewPath ?? undefined}
           />
         </div>
 

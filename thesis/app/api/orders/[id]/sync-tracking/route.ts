@@ -153,10 +153,20 @@ export async function POST(
 
     // UPS returns activities in reverse-chronological order.
     // activities[0]   = most recent scan (current/delivered location)
-    // activities[last] = oldest scan     (origin/pickup location)
+    // activities[last] = oldest scan     (_origin/pickup location)
     const activities = trackingData.activities;
     const latestLocation = activities[0]?.location || null;
     const originLocation = activities[activities.length - 1]?.location || null;
+
+    /** Chronological scan path (oldest → newest) for realistic multi-hop map lines */
+    const chronological = [...activities].reverse();
+    const activityPath: string[] = [];
+    for (const a of chronological) {
+      const loc = (a.location || '').trim();
+      if (!loc || loc === 'Unknown') continue;
+      if (activityPath.length && activityPath[activityPath.length - 1] === loc) continue;
+      activityPath.push(loc);
+    }
 
     // Update order_ups: timestamps, delivery status, and the real origin/destination
     // derived from UPS scan data (overrides any stale DB values).
@@ -200,6 +210,8 @@ export async function POST(
       derivedStatus: derivedStatus,
       originLocation: originLocation,
       latestLocation: latestLocation,
+      /** Unique UPS scan locations in order: origin hub → … → final delivery */
+      activityPath: activityPath.length >= 2 ? activityPath : undefined,
       trackingData: {
         status: trackingData.status,
         statusDescription: trackingData.statusDescription,
