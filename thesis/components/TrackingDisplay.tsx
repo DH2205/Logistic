@@ -92,6 +92,7 @@ export default function TrackingDisplay({
 }: TrackingDisplayProps) {
   const [trackingData, setTrackingData] = useState<TrackingInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isMock, setIsMock] = useState(false);
 
