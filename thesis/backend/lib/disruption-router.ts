@@ -35,11 +35,23 @@ export interface RouteEdge {
   mode: 'air' | 'sea' | 'land';
 }
 
+export type DisruptionType =
+  | 'port_closure'
+  | 'conflict_zone'
+  | 'storm'
+  | 'congestion'
+  | 'airspace_closure'
+  | 'sea_lane_closure';
+
 export interface DisruptionZoneInput {
   id: string;
   name: string;
   bbox: BBox;
   severity: 'low' | 'medium' | 'high' | 'critical';
+  /** Optional. If absent, inferred from `name` via inferDisruptionType. */
+  type?: DisruptionType;
+  /** Optional free-text used as an additional source for type inference. */
+  description?: string;
 }
 
 export interface RouteWaypoint {
@@ -49,10 +61,29 @@ export interface RouteWaypoint {
   lng: number;
 }
 
+export type RerouteStatus = 'ok' | 'rerouted' | 'no_safe_route';
+
 export interface RerouteResult {
   waypoints: RouteWaypoint[];
   totalDistanceKm: number;
   blocked: boolean; // true if the original direct route was blocked
+  /** Composite logistics score (lower is better). May be Infinity for no_safe_route. */
+  score?: number;
+  status?: RerouteStatus;
+  /** Name of the originally-nearest destination hub (may equal selectedGateway). */
+  originalGateway?: string;
+  /** Name of the hub the route actually terminates at after substitution. */
+  selectedGateway?: string;
+  /** Disruption names that caused gateway substitution / edge blocking. */
+  blockedBy?: string[];
+  /** Human-readable explanation of the routing decision. */
+  reasons?: string[];
+  /** Soft warnings (e.g. inland transfer needed). */
+  warnings?: string[];
+  /** Candidate gateways that were tried but rejected. */
+  rejectedRoutes?: Array<{ gateway: string; reason: string }>;
+  /** Other valid gateways with their scores (best first, selected one excluded). */
+  alternatives?: Array<{ gateway: string; score: number }>;
   metrics?: {
     execMs: number;
     nodeCount: number;
@@ -126,10 +157,17 @@ export const LOGISTICS_HUBS: Hub[] = [
   { id: 'GB',     name: 'London / Felixstowe', lat: 51.51, lng: -0.13, type: 'seaport' },
   { id: 'PL',     name: 'Warsaw / Gdańsk',  lat:  52.23, lng:  21.01, type: 'airport'  },
   // North America
-  { id: 'US_NY',  name: 'New York',         lat:  40.71, lng: -74.01, type: 'seaport'  },
+  { id: 'US_NY',  name: 'New York / New Jersey', lat: 40.71, lng: -74.01, type: 'seaport' },
   { id: 'US_LA',  name: 'Los Angeles',      lat:  34.05, lng:-118.24, type: 'seaport'  },
+  { id: 'US_LGB', name: 'Long Beach',       lat:  33.77, lng:-118.19, type: 'seaport'  },
+  { id: 'US_OAK', name: 'Oakland / San Francisco', lat: 37.80, lng:-122.27, type: 'seaport' },
+  { id: 'US_SEA', name: 'Seattle / Tacoma', lat:  47.61, lng:-122.33, type: 'seaport'  },
+  { id: 'US_HOU', name: 'Houston',          lat:  29.76, lng: -95.37, type: 'seaport'  },
+  { id: 'US_SAV', name: 'Savannah',         lat:  32.08, lng: -81.09, type: 'seaport'  },
+  { id: 'US_MIA', name: 'Miami',            lat:  25.77, lng: -80.19, type: 'seaport'  },
   { id: 'US_CH',  name: 'Chicago',          lat:  41.88, lng: -87.63, type: 'airport'  },
   { id: 'CA',     name: 'Toronto / Vancouver', lat: 43.65, lng: -79.38, type: 'airport' },
+  { id: 'US_VAN', name: 'Vancouver',        lat:  49.28, lng:-123.12, type: 'seaport'  },
   { id: 'MX',     name: 'Mexico City',      lat:  19.43, lng: -99.13, type: 'airport'  },
   // South America
   { id: 'BR',     name: 'São Paulo / Santos', lat: -23.55, lng: -46.63, type: 'seaport' },
@@ -167,6 +205,16 @@ export const RAW_EDGES: RouteEdge[] = [
   { from: 'JP',  to: 'US_NY', distanceKm:10800, mode: 'air'  }, // polar route JP → US East
   { from: 'KR',  to: 'US_LA', distanceKm: 9200, mode: 'sea'  },
   { from: 'CN',  to: 'US_LA', distanceKm:10400, mode: 'sea'  },
+  // ── Trans-Pacific to alternative US West Coast gateways ──
+  { from: 'HK',  to: 'US_SEA', distanceKm:10300, mode: 'sea' },
+  { from: 'HK',  to: 'US_OAK', distanceKm: 9900, mode: 'sea' },
+  { from: 'JP',  to: 'US_SEA', distanceKm: 7700, mode: 'sea' },
+  { from: 'JP',  to: 'US_OAK', distanceKm: 8300, mode: 'sea' },
+  { from: 'KR',  to: 'US_SEA', distanceKm: 8200, mode: 'sea' },
+  { from: 'CN',  to: 'US_SEA', distanceKm: 9100, mode: 'sea' },
+  { from: 'CN',  to: 'US_OAK', distanceKm: 9700, mode: 'sea' },
+  { from: 'JP',  to: 'US_VAN', distanceKm: 7600, mode: 'sea' },
+  { from: 'HK',  to: 'US_VAN', distanceKm:10200, mode: 'sea' },
   { from: 'AU',  to: 'JP',    distanceKm: 7800, mode: 'sea'  },
   { from: 'AU',  to: 'US_LA', distanceKm:12100, mode: 'sea'  },
   { from: 'AU',  to: 'ZA',    distanceKm: 8400, mode: 'sea'  }, // Cape of Good Hope bypass route
@@ -245,6 +293,24 @@ export const RAW_EDGES: RouteEdge[] = [
   { from: 'US_NY', to: 'MX',    distanceKm: 3400, mode: 'air' },
   { from: 'US_LA', to: 'MX',    distanceKm: 2800, mode: 'air' },
   { from: 'CA',    to: 'US_CH', distanceKm: 1500, mode: 'air' },
+  // ── Additional US gateway connectivity (intra-US) ──
+  { from: 'US_LA',  to: 'US_LGB', distanceKm:   35, mode: 'land' },
+  { from: 'US_OAK', to: 'US_LA',  distanceKm:  600, mode: 'land' },
+  { from: 'US_SEA', to: 'US_OAK', distanceKm: 1100, mode: 'land' },
+  { from: 'US_SEA', to: 'US_LA',  distanceKm: 1900, mode: 'land' },
+  { from: 'US_VAN', to: 'US_SEA', distanceKm:  230, mode: 'land' },
+  { from: 'US_VAN', to: 'CA',     distanceKm: 3400, mode: 'air'  },
+  { from: 'US_SEA', to: 'US_CH',  distanceKm: 2800, mode: 'air'  },
+  { from: 'US_OAK', to: 'US_CH',  distanceKm: 3000, mode: 'air'  },
+  { from: 'US_LA',  to: 'US_HOU', distanceKm: 2200, mode: 'land' },
+  { from: 'US_HOU', to: 'US_SAV', distanceKm: 1400, mode: 'land' },
+  { from: 'US_HOU', to: 'US_CH',  distanceKm: 1500, mode: 'air'  },
+  { from: 'US_SAV', to: 'US_NY',  distanceKm: 1200, mode: 'land' },
+  { from: 'US_SAV', to: 'US_MIA', distanceKm:  700, mode: 'land' },
+  { from: 'US_NY',  to: 'US_MIA', distanceKm: 2050, mode: 'sea'  },
+  // Trans-Atlantic to alternative US East Coast gateways
+  { from: 'GB',     to: 'US_SAV', distanceKm: 6500, mode: 'sea'  },
+  { from: 'NL',     to: 'US_NY',  distanceKm: 5900, mode: 'sea'  },
   // ── South America ──
   { from: 'BR',    to: 'US_NY', distanceKm: 7700, mode: 'sea' },
   { from: 'BR',    to: 'FR',    distanceKm: 8500, mode: 'sea' },
@@ -683,45 +749,287 @@ function hubInBbox(hub: Hub, bbox: BBox): boolean {
   );
 }
 
-const SEVERITY_MULTIPLIER: Record<string, number> = {
-  low: 3,
-  medium: 10,
-  high: 100,
-  critical: Infinity,
+// ─── Logistics scoring constants (tunable) ────────────────────────────────────
+
+/** Additive km-equivalent penalty per disruption severity (used by calculateEdgeScore). */
+const SEVERITY_ADDITIVE_PENALTY: Record<string, number> = {
+  low: 200,
+  medium: 1000,
+  high: 4000,
+  critical: 20000,
 };
 
-/** Edge weight — hard-block edges that touch high/critical zones (no “penalty path” through war zones). */
-function edgeWeight(
+/** Types that hard-block when severity is `high` (and always when `critical`). */
+const SERIOUS_TYPES: ReadonlySet<DisruptionType> = new Set<DisruptionType>([
+  'port_closure',
+  'conflict_zone',
+  'sea_lane_closure',
+  'airspace_closure',
+]);
+
+/** West-coast US gateway cluster (for same-coast preference). */
+const US_WEST_COAST = new Set(['US_LA', 'US_LGB', 'US_OAK', 'US_SEA', 'US_VAN']);
+const US_EAST_COAST = new Set(['US_NY', 'US_SAV', 'US_MIA']);
+const US_GULF       = new Set(['US_HOU']);
+const US_INLAND     = new Set(['US_CH']);
+
+/** All US gateway hub ids (used as candidate pool when destination is in the US). */
+const US_GATEWAYS = new Set<string>([
+  ...US_WEST_COAST, ...US_EAST_COAST, ...US_GULF, ...US_INLAND,
+]);
+
+// ─── Disruption type inference ────────────────────────────────────────────────
+
+const TYPE_KEYWORDS: Array<[RegExp, DisruptionType]> = [
+  [/port\s*closure|closed\s*port|closing\s*port/i, 'port_closure'],
+  [/airspace/i,                                    'airspace_closure'],
+  [/sea\s*lane|canal|strait/i,                     'sea_lane_closure'],
+  [/storm|typhoon|hurricane|cyclone/i,             'storm'],
+  [/congestion|delay|backlog/i,                    'congestion'],
+  [/war|conflict|attack|invasion|missile/i,        'conflict_zone'],
+];
+
+export function inferDisruptionType(d: DisruptionZoneInput): DisruptionType {
+  if (d.type) return d.type;
+  const text = `${d.name ?? ''} ${d.description ?? ''}`;
+  for (const [re, t] of TYPE_KEYWORDS) {
+    if (re.test(text)) return t;
+  }
+  return 'conflict_zone'; // matches current default hard-block behaviour
+}
+
+// ─── Hub / edge blocking predicates ───────────────────────────────────────────
+
+/** True when the hub sits inside the disruption bbox AND the disruption blocks hubs. */
+export function isHubBlocked(hub: Hub, disruptions: DisruptionZoneInput[]): {
+  blocked: boolean;
+  by: DisruptionZoneInput[];
+} {
+  const by: DisruptionZoneInput[] = [];
+  for (const d of disruptions) {
+    if (!hubInBbox(hub, d.bbox)) continue;
+    const t = inferDisruptionType(d);
+    const sev = d.severity ?? 'medium';
+    // port_closure & conflict_zone block hubs at high/critical
+    if ((t === 'port_closure' || t === 'conflict_zone') &&
+        (sev === 'high' || sev === 'critical')) {
+      by.push(d);
+    }
+  }
+  return { blocked: by.length > 0, by };
+}
+
+/** True if the edge’s arc touches the disruption bbox. */
+function disruptionTouchesEdge(
+  edge: RouteEdge,
+  hubById: Map<string, Hub>,
+  d: DisruptionZoneInput
+): boolean {
+  const a = hubById.get(edge.from);
+  const b = hubById.get(edge.to);
+  if (!a || !b) return false;
+  return (
+    hubInBbox(a, d.bbox) ||
+    hubInBbox(b, d.bbox) ||
+    arcIntersectsBbox(a, b, d.bbox, 48)
+  );
+}
+
+// ─── Composite edge scoring ───────────────────────────────────────────────────
+
+export interface EdgeScoreResult {
+  score: number;
+  blocked: boolean;
+  reasons: string[];
+}
+
+export function calculateEdgeScore(
   edge: RouteEdge,
   hubById: Map<string, Hub>,
   disruptions: DisruptionZoneInput[]
-): number {
-  const a = hubById.get(edge.from)!;
-  const b = hubById.get(edge.to)!;
-  let multiplier = 1;
+): EdgeScoreResult {
+  let score = edge.distanceKm;
+  let blocked = false;
+  const reasons: string[] = [];
 
   for (const d of disruptions) {
+    if (!disruptionTouchesEdge(edge, hubById, d)) continue;
+    const t = inferDisruptionType(d);
     const sev = d.severity ?? 'medium';
-    const touches =
-      hubInBbox(a, d.bbox) ||
-      hubInBbox(b, d.bbox) ||
-      arcIntersectsBbox(a, b, d.bbox, 48);
 
-    if (!touches) continue;
+    // Type-specific blocking
+    let typeBlocks = false;
+    if (sev === 'critical' && SERIOUS_TYPES.has(t)) typeBlocks = true;
+    if (sev === 'high' && SERIOUS_TYPES.has(t)) typeBlocks = true;
+    if (t === 'airspace_closure' && edge.mode === 'air' &&
+        (sev === 'high' || sev === 'critical')) typeBlocks = true;
+    if (t === 'sea_lane_closure' && edge.mode === 'sea' &&
+        (sev === 'high' || sev === 'critical')) typeBlocks = true;
+    if (t === 'storm' && sev === 'critical' &&
+        (edge.mode === 'sea' || edge.mode === 'air')) typeBlocks = true;
+    if (t === 'congestion' && sev === 'critical') typeBlocks = true;
 
-    // War / closure zones at high+ severity must not be traversed (VN→BR was still
-    // cutting through the Gulf when “high” only applied a 100× cost).
-    if (sev === 'critical' || sev === 'high') {
-      return Infinity;
+    if (typeBlocks) {
+      blocked = true;
+      reasons.push(`Edge ${edge.from}→${edge.to} blocked by ${sev} ${t} (${d.name})`);
+      // Keep scanning so reasons accumulate, but score will be Infinity below.
+      continue;
     }
 
-    const m = SEVERITY_MULTIPLIER[sev] ?? 1;
-    if (m === Infinity) return Infinity;
-    multiplier = Math.max(multiplier, m);
+    // Otherwise additive penalty (mode-aware)
+    const base = SEVERITY_ADDITIVE_PENALTY[sev] ?? 0;
+    let modeFactor = 1;
+    if (t === 'storm' && (edge.mode === 'sea' || edge.mode === 'air')) modeFactor = 2;
+    if (t === 'airspace_closure' && edge.mode === 'air') modeFactor = 3;
+    if (t === 'sea_lane_closure' && edge.mode === 'sea') modeFactor = 3;
+    if (t === 'congestion') modeFactor = 1;
+    const penalty = base * modeFactor;
+    score += penalty;
+    reasons.push(`+${penalty} km penalty: ${sev} ${t} on ${edge.mode} edge (${d.name})`);
   }
 
-  return edge.distanceKm * multiplier;
+  if (reasons.length === 0) {
+    reasons.push(`Base distance ${edge.distanceKm} km`);
+  }
+  return { score: blocked ? Infinity : score, blocked, reasons };
 }
+
+// ─── Gateway substitution ─────────────────────────────────────────────────────
+
+function usCoastOf(hubId: string): 'west' | 'east' | 'gulf' | 'inland' | null {
+  if (US_WEST_COAST.has(hubId)) return 'west';
+  if (US_EAST_COAST.has(hubId)) return 'east';
+  if (US_GULF.has(hubId))       return 'gulf';
+  if (US_INLAND.has(hubId))     return 'inland';
+  return null;
+}
+
+/**
+ * Generate plausible alternative gateways when the natural destination hub is blocked.
+ * For now, supports US destinations explicitly; for other regions returns nearby unblocked hubs.
+ */
+export function generateGatewayCandidates(
+  originalHub: Hub,
+  toLat: number,
+  toLng: number,
+  disruptions: DisruptionZoneInput[],
+  hubs: Hub[]
+): Hub[] {
+  const candidates: Hub[] = [];
+  const isUS = US_GATEWAYS.has(originalHub.id);
+
+  if (isUS) {
+    for (const h of hubs) {
+      if (!US_GATEWAYS.has(h.id)) continue;
+      if (h.id === originalHub.id) continue;
+      if (isHubBlocked(h, disruptions).blocked) continue;
+      candidates.push(h);
+    }
+  } else {
+    // Generic fallback: nearby unblocked hubs within ~3000 km
+    for (const h of hubs) {
+      if (h.id === originalHub.id) continue;
+      if (isHubBlocked(h, disruptions).blocked) continue;
+      const d = haversine(toLat, toLng, h.lat, h.lng);
+      if (d <= 3000) candidates.push(h);
+    }
+  }
+  return candidates;
+}
+
+export function calculateGatewayScore(
+  originalHub: Hub,
+  candidate: Hub,
+  toLat: number,
+  toLng: number,
+  disruptions: DisruptionZoneInput[]
+): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+  if (isHubBlocked(candidate, disruptions).blocked) {
+    return { score: Infinity, reasons: [`${candidate.name} is inside a blocking disruption`] };
+  }
+
+  // Distance from the original destination point (km).
+  const distToDest = haversine(toLat, toLng, candidate.lat, candidate.lng);
+  let score = distToDest;
+  reasons.push(`+${Math.round(distToDest)} km from original destination`);
+
+  const originalCoast = usCoastOf(originalHub.id);
+  const candCoast = usCoastOf(candidate.id);
+  if (originalCoast && candCoast) {
+    if (candCoast === originalCoast) {
+      reasons.push('Same-coast bonus');
+    } else if (candCoast === 'inland') {
+      score += 4000;
+      reasons.push('+4000 km penalty: inland hub as international entry');
+    } else if (
+      (originalCoast === 'west' && candCoast === 'east') ||
+      (originalCoast === 'east' && candCoast === 'west')
+    ) {
+      score += 3000;
+      reasons.push('+3000 km penalty: opposite coast');
+    } else {
+      score += 1500;
+      reasons.push('+1500 km penalty: different coastal cluster');
+    }
+  }
+
+  // Prefer seaport gateways
+  if (candidate.type !== 'seaport') {
+    score += 500;
+    reasons.push('+500 km penalty: non-seaport gateway');
+  }
+  return { score, reasons };
+}
+
+// ─── Route validation ─────────────────────────────────────────────────────────
+
+export function validateRoute(
+  waypoints: RouteWaypoint[],
+  disruptions: DisruptionZoneInput[],
+  context: { directDistanceKm: number; totalDistanceKm: number; originalGatewayId: string }
+): { ok: boolean; failures: string[] } {
+  const failures: string[] = [];
+  if (waypoints.length < 2) failures.push('Route has fewer than 2 waypoints');
+  if (!Number.isFinite(context.totalDistanceKm)) failures.push('Total distance is not finite');
+
+  for (const w of waypoints) {
+    for (const d of disruptions) {
+      const t = inferDisruptionType(d);
+      const sev = d.severity ?? 'medium';
+      if ((sev === 'high' || sev === 'critical') &&
+          (t === 'port_closure' || t === 'conflict_zone')) {
+        if (w.lat >= d.bbox.south && w.lat <= d.bbox.north &&
+            w.lng >= d.bbox.west  && w.lng <= d.bbox.east) {
+          failures.push(`Waypoint "${w.name}" is inside ${sev} ${t} (${d.name})`);
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const a = waypoints[i], b = waypoints[i + 1];
+    for (const d of disruptions) {
+      const t = inferDisruptionType(d);
+      const sev = d.severity ?? 'medium';
+      if ((sev === 'critical' && (t === 'conflict_zone' || t === 'port_closure')) &&
+          arcIntersectsBbox(a, b, d.bbox, 24)) {
+        failures.push(`Segment ${a.name}→${b.name} crosses critical ${t} (${d.name})`);
+      }
+    }
+  }
+
+  // Sanity cap on detour bloat
+  if (context.directDistanceKm > 0 &&
+      Number.isFinite(context.totalDistanceKm) &&
+      context.totalDistanceKm > context.directDistanceKm * 6) {
+    failures.push(`Route is >6x direct distance (${Math.round(context.totalDistanceKm)} km vs ${Math.round(context.directDistanceKm)} km)`);
+  }
+
+  return { ok: failures.length === 0, failures };
+}
+
+
 
 // ─── Dijkstra ────────────────────────────────────────────────────────────────
 
@@ -730,14 +1038,16 @@ function dijkstra(
   endId: string,
   disruptions: DisruptionZoneInput[],
   hubs: Hub[],
-  edges: RouteEdge[]
+  edges: RouteEdge[],
+  blockedHubIds: Set<string> = new Set()
 ): { path: string[]; totalKm: number } {
   const hubById = new Map(hubs.map((h) => [h.id, h]));
 
-  // Build adjacency list (bidirectional)
+  // Build adjacency list (bidirectional), skipping blocked hubs entirely.
   const adj = new Map<string, { to: string; edge: RouteEdge }[]>();
   for (const h of hubs) adj.set(h.id, []);
   for (const e of edges) {
+    if (blockedHubIds.has(e.from) || blockedHubIds.has(e.to)) continue;
     adj.get(e.from)!.push({ to: e.to, edge: e });
     adj.get(e.to)!.push({ to: e.from, edge: e });
   }
@@ -756,9 +1066,10 @@ function dijkstra(
     if (u === endId) break;
 
     for (const { to: v, edge } of adj.get(u) ?? []) {
-      const w = edgeWeight(edge, hubById, disruptions);
-      if (w === Infinity) continue;
-      const nd = d + w;
+      if (blockedHubIds.has(v)) continue;
+      const { score } = calculateEdgeScore(edge, hubById, disruptions);
+      if (!Number.isFinite(score)) continue;
+      const nd = d + score;
       if (nd < dist.get(v)!) {
         dist.set(v, nd);
         prev.set(v, u);
@@ -1009,11 +1320,113 @@ export function findReroute(
   const includeSecondBest = options.includeSecondBest ?? false;
   const startTime = performance.now();
   const startHub = findNearestHub(fromLat, fromLng, hubs);
-  const endHub   = findNearestHub(toLat,   toLng, hubs);
+  const originalGateway = findNearestHub(toLat, toLng, hubs);
 
   const isBlocked = directRouteBlocked(fromLat, fromLng, toLat, toLng, disruptions);
+  const directDistanceKmEarly = haversine(fromLat, fromLng, toLat, toLng);
 
-  const { path, totalKm } = dijkstra(startHub.id, endHub.id, disruptions, hubs, edges);
+  // ── Gateway substitution: pick alternative endpoint if original is blocked ──
+  const gatewayBlock = isHubBlocked(originalGateway, disruptions);
+  const reasons: string[] = [];
+  const warnings: string[] = [];
+  const blockedByNames: string[] = [];
+  const rejectedRoutes: Array<{ gateway: string; reason: string }> = [];
+  const allBlockedHubIds = new Set<string>(
+    hubs.filter((h) => isHubBlocked(h, disruptions).blocked).map((h) => h.id)
+  );
+
+  let endHub: Hub = originalGateway;
+  let status: RerouteStatus = isBlocked ? 'rerouted' : 'ok';
+  let alternatives: Array<{ gateway: string; score: number }> = [];
+  let selectedRoute: { path: string[]; totalKm: number; score: number } | null = null;
+
+  if (gatewayBlock.blocked) {
+    status = 'rerouted';
+    for (const d of gatewayBlock.by) blockedByNames.push(d.name);
+    reasons.push(
+      `Original gateway ${originalGateway.name} is inside a ${gatewayBlock.by[0]?.severity ?? 'critical'} ${
+        inferDisruptionType(gatewayBlock.by[0])
+      } zone (${gatewayBlock.by.map((d) => d.name).join(', ')}).`
+    );
+
+    const candidates = generateGatewayCandidates(originalGateway, toLat, toLng, disruptions, hubs);
+    type Ranked = { hub: Hub; gwScore: number; gwReasons: string[]; path: string[]; routeKm: number; total: number };
+    const ranked: Ranked[] = [];
+
+    for (const cand of candidates) {
+      const { score: gwScore, reasons: gwReasons } = calculateGatewayScore(
+        originalGateway, cand, toLat, toLng, disruptions
+      );
+      if (!Number.isFinite(gwScore)) {
+        rejectedRoutes.push({ gateway: cand.name, reason: 'gateway score Infinity (inside disruption)' });
+        continue;
+      }
+      const { path, totalKm } = dijkstra(startHub.id, cand.id, disruptions, hubs, edges, allBlockedHubIds);
+      if (!Number.isFinite(totalKm) || path.length < 2 || path[path.length - 1] !== cand.id) {
+        rejectedRoutes.push({ gateway: cand.name, reason: 'no feasible Dijkstra path' });
+        continue;
+      }
+      // Build waypoints for validation
+      const hubById = new Map(hubs.map((h) => [h.id, h]));
+      const wps: RouteWaypoint[] = path
+        .filter((id) => hubById.has(id))
+        .map((id) => {
+          const h = hubById.get(id)!;
+          return { id: h.id, name: h.name, lat: h.lat, lng: h.lng };
+        });
+      const v = validateRoute(wps, disruptions, {
+        directDistanceKm: directDistanceKmEarly,
+        totalDistanceKm: totalKm,
+        originalGatewayId: originalGateway.id,
+      });
+      if (!v.ok) {
+        rejectedRoutes.push({ gateway: cand.name, reason: v.failures.join('; ') });
+        continue;
+      }
+      const total = gwScore + totalKm;
+      ranked.push({ hub: cand, gwScore, gwReasons, path, routeKm: totalKm, total });
+    }
+
+    ranked.sort((a, b) => a.total - b.total);
+    if (ranked.length > 0) {
+      const best = ranked[0];
+      endHub = best.hub;
+      selectedRoute = { path: best.path, totalKm: best.routeKm, score: best.total };
+      reasons.push(`${best.hub.name} selected as best alternative gateway (gateway score ${Math.round(best.gwScore)}).`);
+      reasons.push(...best.gwReasons.map((r) => `  • ${r}`));
+      reasons.push('Final route avoids all blocking disruption zones.');
+      alternatives = ranked.slice(1, 4).map((r) => ({
+        gateway: r.hub.name,
+        score: Math.round(r.total),
+      }));
+      if (best.hub.type !== 'seaport' || best.hub.id === 'US_CH') {
+        warnings.push(`Inland or non-seaport gateway selected (${best.hub.name}); manual transfer may be required.`);
+      }
+      if (US_GATEWAYS.has(originalGateway.id) && usCoastOf(best.hub.id) !== usCoastOf(originalGateway.id)) {
+        warnings.push(`Selected gateway is on a different US coast than the original destination — inland delivery distance may be significant.`);
+      }
+    } else {
+      status = 'no_safe_route';
+      reasons.push('No safe alternative gateway found; all candidates failed validation or were unreachable.');
+    }
+  }
+
+  // If no substitution happened, run normal Dijkstra to originalGateway
+  if (!selectedRoute && status !== 'no_safe_route') {
+    const { path, totalKm } = dijkstra(startHub.id, endHub.id, disruptions, hubs, edges, allBlockedHubIds);
+    selectedRoute = { path, totalKm, score: totalKm };
+    // Surface disruptions that affected edge scoring (but didn't fully block) for transparency
+    if (isBlocked) {
+      reasons.push(`Direct route blocked; rerouted via ${path.length - 2} intermediate hub(s).`);
+      for (const d of disruptions) {
+        const sev = d.severity ?? 'medium';
+        if (sev === 'high' || sev === 'critical') blockedByNames.push(d.name);
+      }
+    }
+  }
+
+  const path = selectedRoute?.path ?? [];
+  const totalKm = selectedRoute?.totalKm ?? Infinity;
 
   let secondBestHubKm: number | undefined;
   let distanceSavedVsSecondBestKm: number | undefined;
@@ -1064,10 +1477,29 @@ export function findReroute(
     );
   }
 
+  // De-duplicate accumulated names
+  const dedupedBlockedBy = Array.from(new Set(blockedByNames));
+  const routeFound = waypoints.length > 1 && Number.isFinite(totalKm);
+  if (!routeFound && status !== 'no_safe_route') {
+    status = 'no_safe_route';
+    if (reasons.length === 0) {
+      reasons.push('No feasible route found through the current hub graph.');
+    }
+  }
+
   return {
     waypoints,
     totalDistanceKm: totalKm,
     blocked: isBlocked,
+    score: selectedRoute?.score ?? Infinity,
+    status,
+    originalGateway: originalGateway.name,
+    selectedGateway: endHub.name,
+    blockedBy: dedupedBlockedBy,
+    reasons,
+    warnings,
+    rejectedRoutes: rejectedRoutes.length > 0 ? rejectedRoutes : undefined,
+    alternatives: alternatives.length > 0 ? alternatives : undefined,
     metrics: {
       execMs,
       nodeCount: hubs.length,
@@ -1076,7 +1508,7 @@ export function findReroute(
       directDistanceKm,
       detourKm,
       detourPct,
-      routeFound: waypoints.length > 1 && Number.isFinite(totalKm),
+      routeFound,
       hopCount: waypoints.length,
       secondBestHubKm,
       distanceSavedVsSecondBestKm,

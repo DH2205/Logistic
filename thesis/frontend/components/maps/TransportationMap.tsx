@@ -319,6 +319,13 @@ export default function TransportationMap({
     /** Hub-km saved vs next longer feasible route (when computed) */
     distanceSavedKm?: number | null;
     secondBestHubKm?: number | null;
+    /** Logistics-aware fields (populated from RerouteResult). */
+    status?: 'ok' | 'rerouted' | 'no_safe_route';
+    originalGateway?: string;
+    selectedGateway?: string;
+    reasons?: string[];
+    warnings?: string[];
+    alternatives?: Array<{ gateway: string; score: number }>;
   } | null>(null);
 
   // Convert active disruptions to DisruptionZoneInput[].
@@ -1063,9 +1070,17 @@ export default function TransportationMap({
             : null;
         setRerouteInfo({
           extraKm: Math.round(result.totalDistanceKm - directKm),
-          blockedBy: activeDisruptionZones.map((d) => d.name),
+          blockedBy: result.blockedBy && result.blockedBy.length > 0
+            ? result.blockedBy
+            : activeDisruptionZones.map((d) => d.name),
           distanceSavedKm: saved,
           secondBestHubKm: secondBest,
+          status: result.status,
+          originalGateway: result.originalGateway,
+          selectedGateway: result.selectedGateway,
+          reasons: result.reasons,
+          warnings: result.warnings,
+          alternatives: result.alternatives,
         });
         console.log(`🔄 Rerouted: ${result.waypoints.map((w) => w.name).join(' → ')}`);
       } else {
@@ -1957,6 +1972,45 @@ export default function TransportationMap({
                                 (alternative path ~{rerouteInfo.secondBestHubKm} km)
                               </span>
                             )}
+                          </p>
+                        )}
+                        {rerouteInfo?.originalGateway &&
+                          rerouteInfo.selectedGateway &&
+                          rerouteInfo.originalGateway !== rerouteInfo.selectedGateway && (
+                          <div className="bg-white/80 rounded-lg px-3 py-2 border border-red-200 text-xs">
+                            <p className="text-red-800">
+                              <span className="font-semibold">Gateway substituted:</span>{' '}
+                              <span className="line-through text-gray-500">{rerouteInfo.originalGateway}</span>
+                              <span className="mx-1">→</span>
+                              <strong>{rerouteInfo.selectedGateway}</strong>
+                            </p>
+                          </div>
+                        )}
+                        {rerouteInfo?.reasons && rerouteInfo.reasons.length > 0 && (
+                          <ul className="bg-white/70 rounded-lg px-3 py-2 border border-red-200 text-xs text-red-900 list-disc list-inside space-y-0.5">
+                            {rerouteInfo.reasons.map((r, i) => (
+                              <li key={i}>{r}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {rerouteInfo?.warnings && rerouteInfo.warnings.length > 0 && (
+                          <ul className="bg-amber-50 rounded-lg px-3 py-2 border border-amber-300 text-xs text-amber-900 list-disc list-inside space-y-0.5">
+                            {rerouteInfo.warnings.map((w, i) => (
+                              <li key={i}>⚠ {w}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {rerouteInfo?.alternatives && rerouteInfo.alternatives.length > 0 && (
+                          <p className="text-xs text-gray-600">
+                            Other candidates considered:{' '}
+                            {rerouteInfo.alternatives
+                              .map((a) => `${a.gateway} (${a.score.toLocaleString()})`)
+                              .join(', ')}
+                          </p>
+                        )}
+                        {rerouteInfo?.status === 'no_safe_route' && (
+                          <p className="text-xs font-bold text-red-700 bg-red-100 rounded-lg px-3 py-2 border border-red-300">
+                            No safe route could be calculated. Manual review required.
                           </p>
                         )}
                         <p className="text-xs text-gray-500">
