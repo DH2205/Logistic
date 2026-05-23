@@ -1,0 +1,347 @@
+IMPLEMENTATION PROMPT: Add Logistics-Aware Route Scoring System
+===============================================================
+
+Project context:
+This project is a Next.js + TypeScript logistics web application called LogiShop. The route visualization and rerouting logic are used in TransportationMap. The current rerouting logic uses Dijkstra in backend/lib/disruption-router.ts and displays the rerouted path in frontend/components/maps/TransportationMap.tsx.
+
+Current problem:
+The current route optimization logic is too simple. It mainly optimizes by shortest distance while blocking or penalizing disrupted edges. This causes unrealistic behavior in the map. For example, when a delivery goes from Vietnam to the United States and Los Angeles is marked as a critical closure zone, the system may reroute to another longer path and then visually return toward California or choose a route that is technically shortest in the simplified graph but not convincing as a logistics decision.
+
+Goal:
+Improve the rerouting system by adding a logistics-aware scoring model. The system should not only find the shortest path, but the safest, most reasonable, and most explainable route under disruption conditions.
+
+Important files:
+- backend/lib/disruption-router.ts
+- frontend/components/maps/TransportationMap.tsx
+- backend/lib/tracking-reroute-insight.ts
+- backend/lib/geocoding.ts
+
+Main implementation idea:
+Keep Dijkstra, but change the edge weight from simple distance to a logistics score.
+
+Current simplified idea:
+edgeWeight = distanceKm * multiplier
+
+New desired idea:
+edgeScore = distanceKm
+          + disruptionPenalty
+          + modePenalty
+          + gatewayPenalty
+          + hubPenalty
+          + riskPenalty
+
+Then validate the full route after Dijkstra returns it.
+
+Required features:
+
+1. Add disruption type support
+
+Extend disruption model conceptually from only severity:
+
+severity:
+- low
+- medium
+- high
+- critical
+
+to include disruption type:
+
+type:
+- port_closure
+- conflict_zone
+- storm
+- congestion
+- airspace_closure
+- sea_lane_closure
+
+If changing stored data is too risky, make type optional and default it based on name/description:
+- names containing "port closure", "closed port", "closing port" -> port_closure
+- names containing "war", "conflict", "attack" -> conflict_zone
+- names containing "storm", "typhoon", "hurricane" -> storm
+- names containing "congestion", "delay" -> congestion
+- names containing "airspace" -> airspace_closure
+- names containing "sea lane", "canal", "strait" -> sea_lane_closure
+
+2. Implement route scoring rules
+
+Suggested scoring rules:
+
+Base:
+- distanceKm is always included.
+
+Severity:
+- low: small penalty
+- medium: medium penalty
+- high: strong penalty or block depending on disruption type
+- critical: block for serious types
+
+Disruption type behavior:
+- port_closure:
+  - block the affected hub or port
+  - block edges entering or leaving those hubs
+  - do not necessarily block unrelated route segments outside the port area
+
+- conflict_zone:
+  - block hubs inside the zone
+  - block edges crossing the zone for high or critical severity
+
+- storm:
+  - penalize sea and air edges crossing the zone
+  - block only if critical
+
+- congestion:
+  - add penalty but do not block unless critical
+
+- airspace_closure:
+  - block air edges crossing the zone
+  - allow sea and land alternatives
+
+- sea_lane_closure:
+  - block sea edges crossing the zone
+  - allow air and land alternatives
+
+3. Add destination/gateway safety detection
+
+Before running Dijkstra, detect whether the destination hub is blocked.
+
+Example:
+If destination is Los Angeles and there is a critical Los Angeles port closure, do not force the route to end at Los Angeles.
+
+Instead:
+- mark originalGateway as blocked
+- generate candidate safe gateways
+- run Dijkstra to those candidates
+- choose the best safe route
+
+4. Add more realistic gateway candidates
+
+For US destinations, support more gateway alternatives in the routing graph.
+
+Add or model hubs such as:
+- Seattle / Tacoma
+- Oakland / San Francisco
+- Long Beach
+- Houston
+- Savannah
+- Miami
+- New York / New Jersey
+- Vancouver
+- Chicago as inland transfer, not primary seaport gateway
+
+For Vietnam to US:
+- normal West Coast gateway: Los Angeles / Long Beach
+- if LA closed: prefer Seattle/Tacoma or Oakland/SF
+- use New York, Houston, Savannah only if West Coast alternatives are unavailable or worse
+- avoid using Chicago as first international seaport gateway unless mode is air or inland continuation is required
+
+5. Add gateway suitability scoring
+
+Create a function such as:
+
+calculateGatewayScore(originalDestination, candidateGateway, disruptions)
+
+Suggested factors:
+- distance from original destination
+- same coast preference
+- gateway type: seaport/airport/storage
+- whether candidate is inside disruption
+- whether route to candidate crosses disruption
+- whether candidate is a realistic international entry point
+
+Example scoring:
+- same coast safe gateway: low penalty
+- opposite coast gateway: medium/high penalty
+- inland hub as entry point: high penalty
+- blocked gateway: Infinity
+
+6. Update edge scoring
+
+Replace or extend edgeWeight() with a new function such as:
+
+calculateEdgeScore(edge, hubById, disruptions, context)
+
+It should return:
+- score number
+- blocked boolean
+- reasons array
+
+Example return:
+{
+  score: 9300,
+  blocked: false,
+  reasons: ["Base distance 9300 km"]
+}
+
+For blocked edge:
+{
+  score: Infinity,
+  blocked: true,
+  reasons: ["Edge enters critical Los Angeles port closure"]
+}
+
+Dijkstra can still use only score internally, but the reasons should be available for explanation.
+
+7. Add route validation
+
+After Dijkstra returns a path, validate the full route.
+
+Create a function:
+
+validateRoute(waypoints, disruptions, context)
+
+Validation checks:
+- no waypoint is inside critical blocked zone
+- no segment crosses critical conflict zone
+- final gateway is not blocked
+- route does not return into the same closed destination zone
+- route distance is not excessively longer without reason
+- route has at least two waypoints
+- total distance is finite
+
+If validation fails:
+- reject the route
+- try next candidate gateway
+- if all fail, return status "no_safe_route"
+
+8. Add candidate route ranking
+
+When destination is blocked or multiple gateways are possible:
+- generate candidate gateways
+- run Dijkstra to each candidate
+- validate each route
+- calculate final routeScore
+- choose lowest routeScore
+
+Suggested route score:
+routeScore =
+  totalEdgeScore
+  + destinationPenalty
+  + gatewayPenalty
+  + detourPenalty
+  + modeSwitchPenalty
+
+9. Improve returned result
+
+Current result has:
+- waypoints
+- totalDistanceKm
+- blocked
+- metrics
+
+Extend it to include:
+- score
+- status
+- originalGateway
+- selectedGateway
+- blockedBy
+- reasons
+- warnings
+- rejectedRoutes
+- alternatives
+
+Example:
+{
+  waypoints: [...],
+  totalDistanceKm: 12400,
+  score: 15100,
+  status: "rerouted",
+  originalGateway: "Los Angeles",
+  selectedGateway: "Seattle / Tacoma",
+  blockedBy: ["Los Angeles Port Closure"],
+  reasons: [
+    "Original gateway Los Angeles is inside a critical closure zone.",
+    "Seattle / Tacoma selected as nearest safe West Coast gateway.",
+    "Final route avoids all critical disruption zones."
+  ],
+  warnings: [
+    "Final inland delivery from Seattle to California may require manual confirmation."
+  ],
+  alternatives: [
+    { gateway: "Oakland / San Francisco", score: 15800 },
+    { gateway: "New York / New Jersey", score: 22100 }
+  ],
+  metrics: {
+    directDistanceKm: ...,
+    detourKm: ...,
+    detourPct: ...,
+    routeFound: true
+  }
+}
+
+10. Update TransportationMap display
+
+TransportationMap should not decide the logistics logic. It should only display:
+- blocked preview path
+- selected rerouted path
+- reroute explanation
+- blockedBy
+- selectedGateway
+- extra distance
+- warnings
+
+Add UI text such as:
+"Los Angeles is unavailable due to a critical port closure. The route was redirected to Seattle / Tacoma because it is the nearest safe West Coast gateway. The selected route avoids all active critical disruption zones."
+
+11. Expected behavior example
+
+Input:
+Origin: Vietnam
+Destination: United States / Los Angeles
+Disruption: Los Angeles Port Closure, severity critical, type port_closure
+
+Bad current behavior:
+Vietnam -> route avoids some LA edges -> route may still look like it returns to California -> no explanation.
+
+Expected new behavior:
+- Detect Los Angeles gateway is blocked.
+- Do not use LA as final gateway.
+- Generate safe alternatives.
+- Prefer Seattle/Tacoma or Oakland/SF over New York if safe.
+- Run Dijkstra to selected safe gateway.
+- Validate the full route.
+- Display explanation.
+
+Expected result:
+Status: rerouted
+Original gateway: Los Angeles
+Selected gateway: Seattle / Tacoma
+Reason: Los Angeles is closed; Seattle is nearest safe West Coast gateway.
+Warnings: inland delivery may require manual handling.
+Route: Vietnam -> Hong Kong / Japan -> Seattle -> inland transfer if needed.
+
+12. Important implementation guidance
+
+Do not remove Dijkstra.
+Do not put scoring logic inside TransportationMap.
+Keep routing/scoring logic in backend/lib/disruption-router.ts or a new helper file like backend/lib/logistics-route-scoring.ts.
+Keep the frontend focused on display and explanation.
+Make type additions backward compatible so old disruptions without type still work.
+Use conservative default scoring values and make constants easy to tune.
+
+13. Suggested new helper functions
+
+- inferDisruptionType(disruption)
+- isHubBlocked(hub, disruptions)
+- disruptionTouchesEdge(edge, hubById, disruption)
+- calculateEdgeScore(edge, hubById, disruptions, context)
+- detectDestinationGateway(toLat, toLng, hubs)
+- generateGatewayCandidates(destination, disruptions, hubs)
+- calculateGatewayScore(candidate, context)
+- validateRoute(waypoints, disruptions, context)
+- rankCandidateRoutes(routes)
+- explainRouteDecision(result)
+
+14. Success criteria
+
+The implementation is successful when:
+- Critical port closure does not allow routing back into the closed port.
+- Vietnam to US with LA closed selects a believable alternative gateway.
+- The displayed reroute avoids critical zones.
+- The UI explains why the reroute was selected.
+- If no safe route exists, the system says so instead of displaying a bad route.
+- Existing non-disrupted routes still work.
+- Existing disruptions without type still work.
+
+15. Suggested thesis wording
+
+"The routing module was extended from a pure shortest-path algorithm into a logistics-aware decision model. Dijkstra's algorithm remains the core search method, but edge weights are replaced by composite logistics scores that account for distance, disruption severity, disruption type, hub availability, transport mode, gateway suitability, and route validity. Critical disruptions remove unsafe hubs or edges from the graph, while lower-severity events add penalties. If the intended destination gateway is unavailable, the system evaluates alternative safe gateways and returns an explainable reroute decision."
