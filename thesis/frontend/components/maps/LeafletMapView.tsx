@@ -96,6 +96,8 @@ export interface LeafletMapViewProps {
   originalRouteBlocked?: boolean;
   /** Multi-point “at-risk” corridor (thesis baseline or UPS legs) for grey dashed preview */
   blockedPreviewPath?: RouteWaypoint[];
+  /** Hide UPS scan polylines (e.g. Pacific leg) when thesis fixed reroute is shown — avoids two green lines */
+  hidePrimaryOrderPolylines?: boolean;
 }
 
 function MapBoundsUpdater({
@@ -138,6 +140,28 @@ function MapBoundsUpdater({
     }
   }, [points.length, map]);
 
+  return null;
+}
+
+/** Leaflet measures the container on init; stacked layouts often get 0×0 without this. */
+function MapInvalidateSize() {
+  const map = useMap();
+  useEffect(() => {
+    const fix = () => {
+      try {
+        map.invalidateSize();
+      } catch {
+        /* ignore */
+      }
+    };
+    fix();
+    const t = window.setTimeout(fix, 120);
+    window.addEventListener('resize', fix);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('resize', fix);
+    };
+  }, [map]);
   return null;
 }
 
@@ -348,6 +372,7 @@ export default function LeafletMapView({
   reroutedPath,
   originalRouteBlocked = false,
   blockedPreviewPath,
+  hidePrimaryOrderPolylines = false,
 }: LeafletMapViewProps) {
   // Guard: Leaflet requires the real DOM. Don't render anything on the first
   // server pass or before the client has fully mounted — otherwise Popup's
@@ -390,6 +415,7 @@ export default function LeafletMapView({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <MapInvalidateSize />
       <MapBoundsUpdater
         mapRef={mapRef}
         points={[...filteredPoints, ...portMarkers]}
@@ -456,7 +482,8 @@ export default function LeafletMapView({
       ))}
 
       {/* Order route polylines + directional arrows + package icon */}
-      {displayedRoutes.map((route) => {
+      {!hidePrimaryOrderPolylines &&
+        displayedRoutes.map((route) => {
         const isHighlighted = route.order_id === highlightedOrderId;
         const color = getRouteColor(route.status);
         const fullPath = [route.from, ...(route.via ?? []), route.to];

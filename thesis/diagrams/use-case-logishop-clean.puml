@@ -1,0 +1,89 @@
+@startuml LogiShop_UseCase_Simplified
+!theme plain
+' Compact thesis figure — fewer ovals & arrows (similar spirit to short tourism DSS diagram)
+scale 0.82
+skinparam dpi 110
+skinparam shadowing false
+skinparam titleFontSize 13
+skinparam ArrowThickness 0.8
+skinparam actorStyle stick
+skinparam usecase {
+  BackgroundColor #FFFACD
+  BorderColor #333333
+  FontSize 9
+}
+skinparam actor {
+  FontSize 9
+}
+skinparam RectangleBorderStyle dashed
+skinparam RectangleBackgroundColor #FFFEEE
+
+title Figure 3.x. Use case diagram — LogiShop\n(Logistics visibility & routing DSS)
+
+left to right direction
+
+'--- Same inheritance idea as tourism DSS: Guest ← Registered user ← Administrator ---
+actor "Guest" as G
+actor "Registered user\n(Customer)" as R
+actor "Administrator" as A
+
+G <|-- R
+R <|-- A
+
+rectangle "LogiShop\n(Logistics visibility & routing DSS)" {
+
+  usecase "Log in" as UC_LOG
+  usecase "Browse public content\n(home & locations catalog)" as UC_BRW
+
+  usecase "Submit shipment request" as UC_SUB
+  usecase "View and track\nmy orders" as UC_MINE
+
+  usecase "View all orders\n(staff scope)" as UC_ALL
+  usecase "Manage platform data\n& approvals" as UC_OPS
+
+  usecase "Verify credentials" as UC_VRF
+  usecase "Complete shipment form" as UC_FRM
+  usecase "View route on\noperations map" as UC_MAP
+}
+
+'--- Context note **outside** system boundary (UML: linked with dashed line)
+note as ContextDoc #FFF9B2
+  **Context — problem & environment**
+  Decision support for **international shipment** handling:
+  * Orders are reviewed before customers see full details (approval gate).
+  * **Track visibility** uses carrier scan data (e.g. UPS) for status and map paths.
+  * **Route / operations map** supports spatial awareness and re-planning views.
+  * Staff maintain **reference data** (locations catalog, FX rates for quoted amounts).
+  **Scope:** Web prototype; human remains accountable for final operational decisions.
+
+  ----
+  **Typical activities under “Manage platform data & approvals”**
+  Review queue · Approve / reject · Correct shipment data · Assign tracking ·
+  Staff notes & delivery status · User directory & statistics
+end note
+
+UC_OPS .. ContextDoc
+
+UC_LOG ..> UC_VRF : <<include>>
+UC_SUB ..> UC_FRM : <<include>>
+UC_MINE <.. UC_MAP : <<extend>>
+
+'--- Guest
+G --> UC_LOG
+G --> UC_BRW
+
+'--- Registered user (Customer)
+R --> UC_LOG
+R --> UC_BRW
+R --> UC_SUB
+R --> UC_MINE
+
+'--- Administrator (inherits customer capabilities in this model + staff duties)
+A --> UC_LOG
+A --> UC_BRW
+A --> UC_SUB
+A --> UC_MINE
+A --> UC_ALL
+A --> UC_OPS
+
+@enduml

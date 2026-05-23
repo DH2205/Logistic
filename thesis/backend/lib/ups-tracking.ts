@@ -81,6 +81,14 @@ interface UPSTrackingResponse {
   };
 }
 
+/** Sort key from UPS "YYYYMMDD HHMMSS" — lexicographic order = chronological order. */
+function upsActivitySortKey(timestamp: string): string {
+  const [datePart = '', timePart = ''] = (timestamp || '').trim().split(/\s+/);
+  const d = datePart.replace(/\D/g, '').padStart(8, '0').slice(0, 8);
+  const t = (timePart || '000000').replace(/\D/g, '').padStart(6, '0').slice(0, 6);
+  return `${d}${t}`;
+}
+
 export interface TrackingInfo {
   trackingNumber: string;
   carrier: string;
@@ -246,16 +254,14 @@ class UPSTrackingService {
       };
     });
 
-    // Get current location from latest activity
-    const latestActivity = packageInfo.activity[0];
-    const latestAddr = latestActivity?.location?.address;
-    const currentLocation = [
-      latestAddr?.city,
-      latestAddr?.stateProvince,
-      latestAddr?.countryCode,
-    ]
-      .filter(Boolean)
-      .join(', ');
+    // UPS does not guarantee package.activity[] is newest-first; sort so index 0 = latest.
+    activities.sort((a, b) =>
+      upsActivitySortKey(b.timestamp).localeCompare(upsActivitySortKey(a.timestamp))
+    );
+
+    // Get current location from latest activity (after sort)
+    const latestActivity = activities[0];
+    const currentLocation = latestActivity?.location?.trim() || undefined;
 
     return {
       trackingNumber,
@@ -263,7 +269,7 @@ class UPSTrackingService {
       // Prefer the type code from the latest activity (e.g. "D", "IT", "I") which is
       // what sync-tracking maps to DB status values.  currentStatus.code is a UPS detail
       // sub-code (e.g. "011") that is NOT the type and breaks that mapping.
-      status: latestActivity?.status?.type || packageInfo.currentStatus.code,
+      status: latestActivity?.status || packageInfo.currentStatus.code,
       statusDescription: packageInfo.currentStatus.simplifiedTextDescription ||
                          packageInfo.currentStatus.description,
       estimatedDelivery: packageInfo.deliveryDate?.date,

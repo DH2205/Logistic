@@ -155,16 +155,43 @@ export default function CreateOrderPage() {
         body: JSON.stringify(orderData),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to create order');
+      const raw = await response.text();
+      let payload: Record<string, unknown> = {};
+      if (raw.trim()) {
+        try {
+          payload = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          payload = { message: raw.trim().slice(0, 800) };
+        }
       }
 
-      const result = await response.json();
-      alert('Order created successfully!');
+      if (!response.ok) {
+        const apiMsg = typeof payload.message === 'string' ? payload.message : '';
+        const apiErr = typeof payload.error === 'string' ? payload.error : '';
+        const msg =
+          [apiMsg, apiErr].filter(Boolean).join(': ') ||
+          `Request failed (${response.status})`;
+        const errDetail =
+          payload.errors && typeof payload.errors === 'object'
+            ? `\n${Object.entries(payload.errors as Record<string, unknown>)
+                .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+                .join('\n')}`
+            : '';
+        console.error('Create order API:', response.status, raw.slice(0, 500), payload);
+        throw new Error(msg + errDetail);
+      }
+
+      alert(
+        'Request submitted. After staff reviews and approves it, it will appear under Orders.'
+      );
       router.push('/orders');
     } catch (error) {
       console.error('Error creating order:', error);
-      alert('Failed to create order. Please try again.');
+      const text =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to create order. Please try again.';
+      alert(text);
     } finally {
       setLoading(false);
     }

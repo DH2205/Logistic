@@ -17,8 +17,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { DEFAULT_RATES_2026 } from '@/app/api/exchange-rates/route';
+import { buildUpsRatingAddress } from '@/lib/ups-rating-address';
 
-const BASE_URL      = 'https://onlinetools.ups.com';
+/** Host only (no trailing /api). OAuth is /security/...; rating is /api/rating/... */
+function upsApiHost(): string {
+  const raw = (process.env.UPS_API_BASE_URL || 'https://onlinetools.ups.com').replace(/\/$/, '');
+  if (raw.endsWith('/api')) return raw.slice(0, -4);
+  return raw || 'https://onlinetools.ups.com';
+}
+
+const BASE_URL      = upsApiHost();
 const CLIENT_ID     = process.env.UPS_CLIENT_ID     || '';
 const CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || '';
 const ACCOUNT_NO    = process.env.UPS_ACCOUNT_NUMBER || '';
@@ -45,6 +53,28 @@ async function getToken(): Promise<string> {
 // ── Rate request ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    if (!CLIENT_ID || !CLIENT_SECRET) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'UPS OAuth is not configured (missing UPS_CLIENT_ID or UPS_CLIENT_SECRET).',
+          hint: 'Add them to .env.local locally, or to Vercel / hosting → Environment Variables for production.',
+        },
+        { status: 200 }
+      );
+    }
+    if (!String(ACCOUNT_NO).trim()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'UPS shipper number is not configured (UPS_ACCOUNT_NUMBER).',
+          hint: 'Use the 6-character UPS account number from your UPS Billing Center.',
+        },
+        { status: 200 }
+      );
+    }
+
     const body = await request.json();
     const {
       weightKg            = 5,
@@ -81,6 +111,9 @@ export async function POST(request: NextRequest) {
 
     const token = await getToken();
 
+    const shipFromAddr = buildUpsRatingAddress(String(originCountryCode));
+    const shipToAddr = buildUpsRatingAddress(String(destinationCountryCode));
+
     const ratePayload = {
       RateRequest: {
         Request: {
@@ -91,29 +124,15 @@ export async function POST(request: NextRequest) {
           Shipper: {
             Name: 'LogiShop Sender',
             ShipperNumber: ACCOUNT_NO,
-            Address: {
-              AddressLine: ['123 Sender Street'],
-              City:        'Ho Chi Minh City',
-              CountryCode: originCountryCode,
-            },
+            Address: shipFromAddr,
           },
           ShipTo: {
             Name: 'LogiShop Receiver',
-            Address: {
-              AddressLine:       ['140 Receiver Ave'],
-              City:              'Los Angeles',
-              StateProvinceCode: 'CA',
-              PostalCode:        '90001',
-              CountryCode:       destinationCountryCode,
-            },
+            Address: shipToAddr,
           },
           ShipFrom: {
             Name: 'LogiShop Sender',
-            Address: {
-              AddressLine: ['123 Sender Street'],
-              City:        'Ho Chi Minh City',
-              CountryCode: originCountryCode,
-            },
+            Address: shipFromAddr,
           },
           Package: {
             PackagingType: { Code: '02', Description: 'Package' },
@@ -146,11 +165,23 @@ export async function POST(request: NextRequest) {
     const rateData = await rateRes.json();
 
     if (!rateRes.ok) {
+      const alerts = rateData?.RateResponse?.Response?.Alert;
+      const firstAlert =
+        Array.isArray(alerts) && alerts[0]?.Description
+          ? String(alerts[0].Description)
+          : null;
+      const errObj = rateData?.response?.errors?.[0];
+      const apiMsg =
+        firstAlert ||
+        (errObj?.message ? String(errObj.message) : null) ||
+        (typeof errObj === 'string' ? errObj : null);
       return NextResponse.json({
         ok: false,
         status: rateRes.status,
         error: rateData,
-        hint: 'UPS Rating API returned an error. Check account number and address formats.',
+        hint:
+          apiMsg ||
+          'UPS Rating API rejected the request. Check UPS_ACCOUNT_NUMBER, API permissions (Rating), and that production keys match https://onlinetools.ups.com.',
       }, { status: 200 });
     }
 
@@ -241,6 +272,13 @@ export async function POST(request: NextRequest) {
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const hint =
+      message.includes('UPS auth failed') || message.includes('401')
+        ? 'OAuth failed: verify UPS_CLIENT_ID, UPS_CLIENT_SECRET, and that the app is subscribed to the Rating API in the UPS developer portal.'
+        : message;
+    return NextResponse.json(
+      { ok: false, error: message, hint },
+      { status: 200 }
+    );
   }
 }

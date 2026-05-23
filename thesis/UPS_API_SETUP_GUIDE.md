@@ -360,7 +360,7 @@ UPS Tracking Data: {
                            │ 3. Service makes UPS API calls
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│          Service: lib/ups-tracking.ts                   │
+│          Service: backend/lib/ups-tracking.ts                   │
 │  - Authenticates with UPS OAuth                         │
 │  - Fetches tracking data                                │
 │  - Transforms response                                  │
@@ -556,9 +556,9 @@ After UPS API is working:
 - **Support:** https://developer.ups.com/support
 
 ### Your Implementation
-- **Service:** `lib/ups-tracking.ts`
+- **Service:** `backend/lib/ups-tracking.ts`
 - **API Route:** `app/api/orders/[id]/tracking/route.ts`
-- **Component:** `components/TrackingDisplay.tsx`
+- **Component:** `frontend/components/tracking/TrackingDisplay.tsx`
 
 ---
 

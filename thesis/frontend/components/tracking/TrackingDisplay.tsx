@@ -2,6 +2,62 @@
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import type { TrackingRerouteInsight } from '@/lib/tracking-reroute-insight';
+
+export function RerouteInsightBanner({
+  insight,
+  compact = false,
+}: {
+  insight: TrackingRerouteInsight;
+  compact?: boolean;
+}) {
+  const saved =
+    insight.distanceSavedKm !== null && insight.distanceSavedKm > 0
+      ? insight.distanceSavedKm
+      : null;
+  return (
+    <div
+      className={`rounded-lg border border-amber-200 bg-amber-50 text-amber-950 ${
+        compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'
+      }`}
+    >
+      <p className={`font-semibold text-amber-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+        Hub reroute (active disruptions)
+      </p>
+      <p className={`mt-1 text-amber-800 ${compact ? 'text-xs' : 'text-sm'}`}>
+        Affected by: {insight.blockedBy.length ? insight.blockedBy.join(', ') : 'zones on map'}
+      </p>
+      <ul className={`mt-2 space-y-0.5 text-amber-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+        <li>
+          Optimal hub path: <strong>{insight.optimalHubKm} km</strong>
+          {insight.secondBestHubKm !== null && (
+            <span className="text-amber-800">
+              {' '}
+              (alternative feasible: {insight.secondBestHubKm} km)
+            </span>
+          )}
+        </li>
+        {saved !== null && (
+          <li>
+            Distance saved vs next feasible hub route: <strong>{saved} km</strong>
+          </li>
+        )}
+        {insight.baselineClearNetworkKm !== null && insight.detourVsClearNetworkKm !== null && (
+          <li>
+            vs unconstrained hub network ({insight.baselineClearNetworkKm} km): detour{' '}
+            <strong>
+              {insight.detourVsClearNetworkKm >= 0 ? '+' : ''}
+              {insight.detourVsClearNetworkKm} km
+            </strong>
+          </li>
+        )}
+        {insight.hubChain ? (
+          <li className="text-amber-800 break-words">Route: {insight.hubChain}</li>
+        ) : null}
+      </ul>
+    </div>
+  );
+}
 
 interface TrackingActivity {
   timestamp: string;
@@ -81,6 +137,8 @@ interface TrackingDisplayProps {
   refreshInterval?: number; // in seconds
   /** Called once (and on every refresh) with the live status + current location */
   onStatusUpdate?: (deliveryStatus: string, currentLocation?: string) => void;
+  /** Hub-network reroute summary when map disruptions block the corridor / chord */
+  rerouteInsight?: TrackingRerouteInsight | null;
 }
 
 export default function TrackingDisplay({
@@ -89,6 +147,7 @@ export default function TrackingDisplay({
   autoRefresh = false,
   refreshInterval = 300, // 5 minutes default
   onStatusUpdate,
+  rerouteInsight = null,
 }: TrackingDisplayProps) {
   const [trackingData, setTrackingData] = useState<TrackingInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -218,6 +277,8 @@ export default function TrackingDisplay({
 
   return (
     <div className="space-y-6">
+      {rerouteInsight && <RerouteInsightBanner insight={rerouteInsight} />}
+
       {/* Mock data warning */}
       {isMock && (
         <div className="flex items-start gap-3 bg-yellow-50 border border-yellow-300 text-yellow-800 rounded-lg px-4 py-3 text-sm">

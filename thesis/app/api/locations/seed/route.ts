@@ -1,7 +1,7 @@
 /**
  * POST /api/locations/seed
  *
- * Bulk-inserts airports (from data/airports.csv + data/iata-coords.json),
+ * Bulk-inserts airports (from backend/lib/seed-data/airports.csv + iata-coords.json),
  * seaports and logistics storage hubs into the `locations` table, skipping
  * any that already exist (matched by name).
  *
@@ -30,11 +30,11 @@ interface SeedLocation {
 
 // ─── CSV airport loader ───────────────────────────────────────────────────────
 /**
- * Reads data/airports.csv and data/iata-coords.json at runtime.
+ * Reads backend/lib/seed-data/airports.csv and iata-coords.json at runtime.
  * Returns one SeedLocation per row that has a known lat/lng.
  */
 function loadAirportsFromCsv(): SeedLocation[] {
-  const dataDir = path.join(process.cwd(), 'data');
+  const dataDir = path.join(process.cwd(), 'backend', 'lib', 'seed-data');
   const csvPath = path.join(dataDir, 'airports.csv');
   const coordsPath = path.join(dataDir, 'iata-coords.json');
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { generateToken, hashPassword } from '@/lib/auth';
+import { normalizeRole } from '@/lib/roles';
 import { v4 as uuidv4 } from 'uuid';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { RegisterSchema, formatZodErrors } from '@/lib/validation';
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       name,
       phone: phone || null,
       address: address || null,
-      role: 'user',
+      role: 'customer',
       unique_id_user: userId,  // Populate unique_id_user with same value as id
       created_at: new Date().toISOString()
     };
@@ -98,11 +99,11 @@ export async function POST(request: NextRequest) {
         name: createdUser.name,
         phone: createdUser.phone || '',
         address: createdUser.address || '',
-        role: createdUser.role || 'user'
+        role: normalizeRole(createdUser.role)
       };
 
       // Generate token
-      const token = generateToken(user.id);
+      const token = generateToken(user.id, user.role);
 
       console.log('User created successfully:', user.email);
       return NextResponse.json({

@@ -1,0 +1,54 @@
+@startuml LogiShop_Monolith_Architecture
+!theme plain
+skinparam shadowing false
+skinparam defaultFontSize 10
+skinparam TitleFontSize 14
+skinparam package {
+  BorderColor #333333
+  FontStyle bold
+}
+skinparam ArrowColor #333333
+
+title Figure 3.3. Simple illustration of Monolith Architecture — LogiShop
+
+skinparam rectangle {
+  BackgroundColor<<presentation>> #C8E6C9
+  BorderColor #2E7D32
+}
+skinparam rectangle<<controller>> {
+  BackgroundColor #FFF9C4
+  BorderColor #F9A825
+}
+skinparam rectangle<<model>> {
+  BackgroundColor #FFECB3
+  BorderColor #FF8F00
+}
+
+' Outer monolith boundary
+rectangle "Monolith\n**(single Next.js application — one deployable unit)**" as MON #F5F5F5 {
+
+  ' Inner dashed "same codebase" (Frame = dashed border in PlantUML)
+  package "Same codebase" <<Frame>> #FFFFFF {
+    together {
+      rectangle "**Presentation (View — Frontend)**\n• `app/**` pages (App Router)\n• `components/**` UI, maps, forms\n• Client auth state (e.g. React context)" <<presentation>> as L1
+
+      rectangle "**Controller / application logic**\n• `app/api/**` route handlers\n• Input validation (Zod), JWT auth, roles\n• Order workflow, UPS integration orchestration" <<controller>> as L2
+
+      rectangle "**Model & data access**\n• Types / serializers (`lib/`)\n• Supabase client, queries & writes\n• Aligns with DB tables (`order_ups`, …)" <<model>> as L3
+    }
+    L1 -[hidden]down- L2
+    L2 -[hidden]down- L3
+  }
+}
+
+together {
+  database "**Centralized database**\n**Supabase (PostgreSQL)**\n• `order_ups`, `users`, `tracking_history`,\n  `exchange_rates`, locations, …" as DB #E1BEE7
+}
+
+L3 -down-> DB : Persistent storage\n(SQL / Supabase API)
+
+note bottom of MON
+  **External dependencies** (not separate deployable services): UPS Tracking / Rating APIs,\n  map tile / geocoding providers as configured — invoked from **Controller** layer inside the monolith.
+end note
+
+@enduml

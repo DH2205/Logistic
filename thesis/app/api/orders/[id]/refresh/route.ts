@@ -1,6 +1,7 @@
 // API route to refresh/sync order data and tracking
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { authorizeOrderTrackingAccess } from "@/lib/order-access";
 
 export async function POST(
   req: NextRequest,
@@ -8,6 +9,11 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+
+    const gate = await authorizeOrderTrackingAccess(req, id);
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
 
     if (!supabase) {
       return NextResponse.json(
@@ -50,14 +56,18 @@ export async function POST(
       try {
         console.log(`[API] Syncing tracking for: ${order.tracking_number}`);
         
+        const authHeader = req.headers.get("authorization");
+        const syncHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (authHeader) syncHeaders.Authorization = authHeader;
+
         // Call the sync-tracking endpoint
         const syncResponse = await fetch(
           `${req.nextUrl.origin}/api/orders/${id}/sync-tracking`,
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: syncHeaders,
           }
         );
 
@@ -134,23 +144,26 @@ export async function POST(
       refreshedAt: new Date().toISOString(),
     };
 
-    // Augment the order with live UPS data from sync-tracking.
-    // When the Supabase DB update silently fails (RLS / network), the re-fetched
-    // order still carries stale values.  We prefer any live-derived status that
-    // is more specific than "pending" (i.e. "delivered" or "in_transit").
+    // Augment the order with live UPS route hints from sync-tracking (not delivery status — staff-controlled).
     if (trackingUpdate) {
-      const liveStatus: string | null = trackingUpdate.derivedStatus ?? null;
-      const currentStatus: string = response.order.deliveryStatus || response.order.status || 'pending';
-      if (liveStatus && liveStatus !== 'pending' && currentStatus === 'pending') {
-        response.order.deliveryStatus = liveStatus;
-        response.order.status = liveStatus;
+      const oLoc =
+        trackingUpdate.originLocation != null &&
+        String(trackingUpdate.originLocation).trim() !== ''
+          ? String(trackingUpdate.originLocation).trim()
+          : null;
+      const dLoc =
+        trackingUpdate.latestLocation != null &&
+        String(trackingUpdate.latestLocation).trim() !== ''
+          ? String(trackingUpdate.latestLocation).trim()
+          : null;
+      // Prefer live UPS scan bookends over stale DB placement
+      if (oLoc) {
+        response.order.fromLocation = oLoc;
+        response.order.origin = { country: oLoc };
       }
-      // Fill missing location strings with live UPS scan data
-      if (trackingUpdate.originLocation && !response.order.fromLocation) {
-        response.order.fromLocation = trackingUpdate.originLocation;
-      }
-      if (trackingUpdate.latestLocation && !response.order.toLocation) {
-        response.order.toLocation = trackingUpdate.latestLocation;
+      if (dLoc) {
+        response.order.toLocation = dLoc;
+        response.order.destination = { country: dLoc };
       }
     }
 

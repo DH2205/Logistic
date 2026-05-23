@@ -1,0 +1,77 @@
+%% LogiShop ERD — paste at https://mermaid.live
+%% Export PNG/SVG for Word; or use VS Code “Mermaid” preview
+
+erDiagram
+  %% Core relationships only (reviewed_by also → users.id; see thesis table)
+  users ||--o{ order_ups : "customer user_id FK"
+  order_ups ||--o{ tracking_history : "order_id FK"
+
+  users {
+    uuid id PK
+    text email UK
+    text password
+    text name
+    text role
+    timestamptz created_at
+  }
+
+  order_ups {
+    uuid id PK
+    text order_id UK
+    uuid user_id FK
+    uuid unique_id_user
+    uuid reviewed_by FK
+    text tracking_number
+    text approval_status
+    text delivery_status
+    text from_location
+    text to_location
+    jsonb origin
+    jsonb destination
+    timestamptz created_at
+  }
+
+  tracking_history {
+    uuid id PK
+    text order_id FK
+    text tracking_number
+    text activity_date
+    text activity_time
+    timestamptz activity_datetime
+    text location_full
+    text status_description
+    text carrier
+    text source
+    jsonb raw_data
+  }
+
+  %% ========== Reference & staging (no FK lines) ==========
+  locations {
+    uuid id PK
+    text name
+    text type
+    numeric latitude
+    numeric longitude
+    text country
+  }
+
+  products {
+    uuid id PK
+    text name
+    numeric price
+    text category
+  }
+
+  exchange_rates {
+    uuid id PK
+    text period
+    text currency_from
+    text currency_to
+    numeric rate_per_usd
+  }
+
+  raw_orders {
+    int id PK
+    varchar house_bill_no UK
+    varchar tracking_number
+  }

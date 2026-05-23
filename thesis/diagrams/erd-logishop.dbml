@@ -1,0 +1,109 @@
+// LogiShop — paste into https://dbdiagram.io/d
+// Clear auto-layout; export PNG/PDF from the site
+
+Table users {
+  id uuid [pk]
+  email text [unique, not null]
+  password text [not null]
+  name text [not null]
+  phone text
+  address text
+  role text
+  created_at timestamptz
+}
+
+Table order_ups {
+  id uuid [pk]
+  order_id text [unique, not null]
+  user_id uuid [ref: > users.id, note: 'customer / owner']
+  unique_id_user uuid [note: 'app scoping']
+  sender_name text
+  sender_phone text
+  sender_email text
+  sender_address text
+  receiver_name text
+  receiver_address text
+  length decimal
+  width decimal
+  height decimal
+  weight decimal
+  gross_weight decimal
+  from_location text
+  to_location text
+  origin jsonb
+  destination jsonb
+  status text
+  delivery_status text
+  tracking_number text
+  carrier text
+  approval_status text
+  staff_notes text
+  reviewed_by uuid [ref: > users.id, note: 'staff reviewer']
+  reviewed_at timestamptz
+  extended_data jsonb
+  tracking_last_fetched timestamptz
+  submission_time timestamptz
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table tracking_history {
+  id uuid [pk]
+  order_id text [ref: > order_ups.order_id, note: 'business key, not uuid id']
+  tracking_number text
+  activity_date text
+  activity_time text
+  activity_datetime timestamptz
+  location_full text
+  status_type text
+  status_description text
+  carrier text
+  source text
+  raw_data jsonb
+}
+
+// --- Reference: no FK drawn to order_ups (join in app / by name) ---
+Table locations {
+  id uuid [pk]
+  name text [not null]
+  type text [not null, note: 'airport | seaport | storage']
+  latitude decimal [not null]
+  longitude decimal [not null]
+  address text
+  city text
+  country text
+  description text
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table products {
+  id uuid [pk]
+  name text [not null]
+  description text
+  price decimal [not null]
+  image text
+  category text [not null]
+  stock int [not null]
+  rating decimal
+  reviews int
+  created_at timestamptz
+}
+
+Table exchange_rates {
+  id uuid [pk]
+  period text [not null]
+  currency_from text [not null]
+  currency_to text [not null]
+  rate_per_usd decimal [not null]
+  source text
+  updated_at timestamptz
+}
+
+Table raw_orders {
+  id int [pk, increment]
+  house_bill_no varchar [unique, not null]
+  tracking_number varchar
+}
+
+// raw_orders: wide staging table — see raw_orders_schema.sql for full column list

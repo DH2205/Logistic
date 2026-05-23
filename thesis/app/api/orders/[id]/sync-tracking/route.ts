@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsTrackingService } from '@/lib/ups-tracking';
+import { authorizeOrderTrackingAccess } from '@/lib/order-access';
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,11 +40,6 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return NextResponse.json({ error: 'Database unavailable' }, { status: 500 });
-    }
-
     const { id: orderId } = await params;
 
     if (!orderId) {
@@ -53,7 +49,16 @@ export async function POST(
       );
     }
 
-    // Get order from database
+    const gate = await authorizeOrderTrackingAccess(request, orderId);
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
+
+    const supabase = getSupabase();
+    if (!supabase) {
+      return NextResponse.json({ error: 'Database unavailable' }, { status: 500 });
+    }
+
     const { data: order, error: orderError } = await supabase
       .from('order_ups')
       .select('order_id, tracking_number')
@@ -140,7 +145,7 @@ export async function POST(
       }
     }
 
-    // Derive delivery status from the UPS status code of the latest activity
+    // Carrier-reported status code → hint only (not written to DB; staff set delivery_status in UI).
     const upsStatusToDb: Record<string, string> = {
       D:   'delivered',
       IT:  'in_transit',
@@ -152,7 +157,6 @@ export async function POST(
     const derivedStatus = upsStatusToDb[trackingData.status] ?? null;
 
     // UPS returns activities in reverse-chronological order.
-    // activities[0]   = most recent scan (current/delivered location)
     // activities[last] = oldest scan     (_origin/pickup location)
     const activities = trackingData.activities;
     const latestLocation = activities[0]?.location || null;
@@ -168,16 +172,12 @@ export async function POST(
       activityPath.push(loc);
     }
 
-    // Update order_ups: timestamps, delivery status, and the real origin/destination
-    // derived from UPS scan data (overrides any stale DB values).
+    // Update order_ups: timestamps and route hints derived from UPS scans.
+    // delivery_status / order status are staff-controlled only.
     const orderUpdate: Record<string, unknown> = {
       tracking_last_fetched: new Date().toISOString(),
       latest_tracking_update: new Date().toISOString(),
     };
-    if (derivedStatus) {
-      orderUpdate.delivery_status = derivedStatus;
-      orderUpdate.status = derivedStatus;
-    }
     if (originLocation) {
       orderUpdate.from_location = originLocation;
       // Also update the JSONB origin column so all API consumers see the real value

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
 import { upsTrackingService } from '@/lib/ups-tracking';
+import {
+  findOrderScoped,
+  canCustomerViewOrder,
+  orderLookupFilter,
+} from '@/lib/order-access';
+import { canManageOrders } from '@/lib/roles';
 
 /**
  * PUT /api/orders/:id/tracking
@@ -23,6 +29,28 @@ export async function PUT(
     }
 
     const { id } = await params;
+    const order = await findOrderScoped(id, authResult);
+    if (!order) {
+      return NextResponse.json(
+        { message: 'Order not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!canManageOrders(authResult.role)) {
+      return NextResponse.json(
+        { message: 'Only staff can set or change the tracking number. Use Update Tracking to refresh carrier data.' },
+        { status: 403 }
+      );
+    }
+
+    if (!canCustomerViewOrder(order, authResult.role)) {
+      return NextResponse.json(
+        { message: 'This order is not visible until staff approves it.' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { trackingNumber, carrier = 'UPS' } = body;
 
@@ -33,23 +61,10 @@ export async function PUT(
       );
     }
 
-    // Find the order
-    const order = await db
-      .get('order_ups')
-      .find({ order_id: id, unique_id_user: authResult.userId })
-      .value();
-
-    if (!order) {
-      return NextResponse.json(
-        { message: 'Order not found' },
-        { status: 404 }
-      );
-    }
-
     // Update order with tracking number
     const updateResult = await db
       .get('order_ups')
-      .find({ order_id: id, unique_id_user: authResult.userId })
+      .find(orderLookupFilter(id, authResult))
       .assign({
         tracking_number: trackingNumber,
         carrier: carrier,
@@ -116,16 +131,18 @@ export async function GET(
 
     const { id } = await params;
 
-    // Find the order
-    const order = await db
-      .get('order_ups')
-      .find({ order_id: id, unique_id_user: authResult.userId })
-      .value();
-
+    const order = await findOrderScoped(id, authResult);
     if (!order) {
       return NextResponse.json(
         { message: 'Order not found' },
         { status: 404 }
+      );
+    }
+
+    if (!canCustomerViewOrder(order, authResult.role)) {
+      return NextResponse.json(
+        { message: 'This order is not visible until staff approves it.' },
+        { status: 403 }
       );
     }
 

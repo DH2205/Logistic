@@ -1,0 +1,62 @@
+@startuml LogiShop_ERD_Simplified
+!theme plain
+skinparam shadowing false
+skinparam RoundCorner 10
+skinparam PackageBorderColor #6A1B9A
+skinparam PackageBackgroundColor #F3E5F5
+skinparam Entity {
+  BackgroundColor #FAFAFA
+  BorderColor #333333
+}
+left to right direction
+
+title LogiShop ERD — Part B: Reference data & import staging\n(no FK to order_ups — joins are logical or ETL)
+
+package "Reference & staging" {
+  entity "locations" as L {
+    * id : uuid <<PK>>
+    --
+    * name : text
+    * type : text
+    * latitude : numeric
+    * longitude : numeric
+    city : text
+    country : text
+  }
+
+  entity "products" as P {
+    * id : uuid <<PK>>
+    --
+    * name : text
+    price : numeric
+    category : text
+    stock : int
+  }
+
+  entity "exchange_rates" as E {
+    * id : uuid <<PK>>
+    --
+    period : text
+    currency_from : text
+    currency_to : text
+    rate_per_usd : numeric
+  }
+
+  entity "raw_orders" as R {
+    * id : int <<PK>>
+    --
+    * house_bill_no : varchar <<UK>>
+    tracking_number : varchar
+    __ wide staging: many columns __
+  }
+}
+
+note bottom of L
+  Map / ops screens;\n**not** FK-linked from `order_ups` endpoints.
+end note
+
+note bottom of R
+  CSV pipeline;\nmay feed `order_ups` via import.
+end note
+
+@enduml

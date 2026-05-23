@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { supabase } from '@/lib/supabase';
+import { authenticateToken } from '@/lib/middleware';
+import { canManageOrders } from '@/lib/roles';
+import { canCustomerViewOrder } from '@/lib/order-access';
 
 /**
- * Public route to look up an order for tracking purposes.
+ * Authenticated order lookup for map tracking.
  * Accepts either the internal order_id (e.g. ORD-…) OR a carrier tracking
- * number (e.g. a UPS 1Z… number) — whichever the user has to hand.
+ * number (e.g. a UPS 1Z… number). Customers only see their own approved
+ * orders; staff and admin may look up any order.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ orderID: string }> }
 ) {
   try {
+    const authResult = await authenticateToken(request);
+    if ('error' in authResult) {
+      return NextResponse.json(
+        { message: 'Please sign in to track orders.' },
+        { status: authResult.status }
+      );
+    }
+
     const { orderID } = await params;
 
     // 1. Try matching by order_id in order_ups table (ORD-… format)
@@ -114,6 +126,37 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    let ownerRow = order as { unique_id_user?: string; approval_status?: string };
+    if (
+      (!ownerRow.unique_id_user || ownerRow.approval_status === undefined) &&
+      supabase &&
+      order.order_id
+    ) {
+      const { data: ou } = await supabase
+        .from('order_ups')
+        .select('unique_id_user, approval_status')
+        .eq('order_id', order.order_id)
+        .maybeSingle();
+      if (ou) {
+        ownerRow = {
+          ...ownerRow,
+          unique_id_user: ou.unique_id_user ?? ownerRow.unique_id_user,
+          approval_status: ou.approval_status ?? ownerRow.approval_status,
+        };
+      }
+    }
+
+    if (!canManageOrders(authResult.role)) {
+      if (!ownerRow.unique_id_user || ownerRow.unique_id_user !== authResult.userId) {
+        return NextResponse.json({ message: 'Order not found' }, { status: 404 });
+      }
+    }
+
+    if (!canCustomerViewOrder(ownerRow, authResult.role)) {
+      return NextResponse.json({ message: 'Order not found' }, { status: 404 });
+    }
+
     // Return camelCase order data without sensitive user information
     const transformedOrder = {
       id: order.id,

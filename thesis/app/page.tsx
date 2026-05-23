@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { productsAPI, ordersAPI } from '@/lib/api';
-import TransportationMap from '@/components/TransportationMap';
+import { coerceDeliveryStatusForDisplay } from '@/lib/delivery-status';
+import TransportationMap from '@/components/maps/TransportationMap';
 
 interface OrderRoute {
   id: string;
@@ -50,7 +51,13 @@ export default function HomePage() {
       }
 
       const response = await ordersAPI.getAll();
-      const orders: any[] = response.data || [];
+      const raw = response.data;
+      const orders: Record<string, unknown>[] = Array.isArray(raw) ? raw : [];
+
+      const normDelivery = (o: Record<string, unknown>) =>
+        coerceDeliveryStatusForDisplay(
+          (o.deliveryStatus ?? o.delivery_status) as string | null | undefined,
+        );
 
       const now = new Date();
       const startOfMonth    = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -58,36 +65,52 @@ export default function HomePage() {
       const startOfThisWeek  = new Date(now.getTime() - 7  * 24 * 60 * 60 * 1000);
       const startOfLastWeek  = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-      // Active = everything not yet delivered
-      const active = orders.filter(
-        (o) => o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'completed'
-      ).length;
+      const isTerminal = (d: ReturnType<typeof coerceDeliveryStatusForDisplay>) =>
+        d === 'delivered' || d === 'completed' || d === 'cancelled';
 
-      // In Transit
-      const inTransit = orders.filter((o) => o.deliveryStatus === 'in_transit').length;
+      const isEnRoute = (d: ReturnType<typeof coerceDeliveryStatusForDisplay>) =>
+        d === 'in_transit' || d === 'shipped' || d === 'out_for_delivery';
 
-      // Delivered Month-To-Date
+      const isDeliveredForMtd = (d: ReturnType<typeof coerceDeliveryStatusForDisplay>) =>
+        d === 'delivered' || d === 'completed';
+
+      // Active = not finished / not cancelled (matches DB-backed list from /api/orders)
+      const active = orders.filter((o) => !isTerminal(normDelivery(o))).length;
+
+      // In transit: on the move (canonical + typical carrier pipeline stages)
+      const inTransit = orders.filter((o) => isEnRoute(normDelivery(o))).length;
+
+      // Delivered / completed month-to-date (use updatedAt when set, else createdAt)
       const delivered = orders.filter((o) => {
-        if (o.deliveryStatus !== 'delivered') return false;
-        const d = new Date(o.updatedAt || o.createdAt);
-        return d >= startOfMonth;
+        if (!isDeliveredForMtd(normDelivery(o))) return false;
+        const d = new Date(
+          (o.updatedAt ?? o.updated_at ?? o.createdAt ?? o.created_at) as string,
+        );
+        return !Number.isNaN(d.getTime()) && d >= startOfMonth;
       }).length;
 
-      // Delivered last month (same elapsed days, for % change)
+      // Delivered last month (for % change)
       const deliveredLastMonth = orders.filter((o) => {
-        if (o.deliveryStatus !== 'delivered') return false;
-        const d = new Date(o.updatedAt || o.createdAt);
-        return d >= startOfLastMonth && d < startOfMonth;
+        if (!isDeliveredForMtd(normDelivery(o))) return false;
+        const d = new Date(
+          (o.updatedAt ?? o.updated_at ?? o.createdAt ?? o.created_at) as string,
+        );
+        return !Number.isNaN(d.getTime()) && d >= startOfLastMonth && d < startOfMonth;
       }).length;
 
-      // Active orders created this week vs last week (for % change)
+      // Active-ish orders created this week vs last week (exclude terminal)
       const activeThisWeek = orders.filter((o) => {
-        const d = new Date(o.createdAt);
-        return d >= startOfThisWeek && o.deliveryStatus !== 'delivered';
+        const d = new Date((o.createdAt ?? o.created_at) as string);
+        return !Number.isNaN(d.getTime()) && d >= startOfThisWeek && !isTerminal(normDelivery(o));
       }).length;
       const activeLastWeek = orders.filter((o) => {
-        const d = new Date(o.createdAt);
-        return d >= startOfLastWeek && d < startOfThisWeek && o.deliveryStatus !== 'delivered';
+        const d = new Date((o.createdAt ?? o.created_at) as string);
+        return (
+          !Number.isNaN(d.getTime()) &&
+          d >= startOfLastWeek &&
+          d < startOfThisWeek &&
+          !isTerminal(normDelivery(o))
+        );
       }).length;
 
       const weekChange = activeLastWeek > 0
@@ -146,10 +169,10 @@ export default function HomePage() {
         <div className="container mx-auto px-4">
           <div className="max-w-3xl">
             <h1 className="text-5xl font-bold mb-4">
-              UPS Shipment Tracking Dashboard
+              Delivery Tracking Dashboard
             </h1>
             <p className="text-red-100 text-xl mb-8">
-              Real-time UPS shipment tracking and management for international logistics
+              Real-time delivery tracking and shipment management for international logistics
             </p>
             <div className="flex gap-4">
               <Link
@@ -162,7 +185,7 @@ export default function HomePage() {
                 href="/orders"
                 className="bg-red-700 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-900 transition border-2 border-white"
               >
-                View Shipments
+                View Orders
               </Link>
             </div>
           </div>
@@ -281,15 +304,15 @@ export default function HomePage() {
           </div>
           <div className="bg-white rounded-lg shadow-md p-8 hover:shadow-xl transition">
             <div className="text-4xl mb-4">📊</div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">UPS Shipment Tracking</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Shipment tracking</h3>
             <p className="text-gray-600 mb-4">
-              Track your UPS shipments in real-time with detailed status updates and delivery information.
+              Track carrier shipments in real time with status updates and delivery information.
             </p>
             <Link
               href="/orders"
               className="text-red-600 hover:text-red-700 font-medium"
             >
-              View Shipments →
+              View Orders →
             </Link>
           </div>
           <div className="bg-white rounded-lg shadow-md p-8 hover:shadow-xl transition">
@@ -299,10 +322,10 @@ export default function HomePage() {
               Optimize shipping routes for cost efficiency and delivery speed.
             </p>
             <Link
-              href="/shipments"
+              href="/operations-map"
               className="text-red-600 hover:text-red-700 font-medium"
             >
-              View Shipments →
+              View Details →
             </Link>
           </div>
         </div>

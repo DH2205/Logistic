@@ -68,6 +68,16 @@ export const ordersAPI = {
   updateStatus: (id: string, status: string) => api.put(`/orders/${id}/status`, { status }),
   updateDelivery: (id: string, deliveryStatus: string) => api.put(`/orders/${id}/track`, { deliveryStatus }),
   delete: (id: string) => api.delete(`/orders/${id}`),
+  review: (id: string, payload: Record<string, unknown>) =>
+    api.post(`/orders/${id}/review`, payload),
+  patchOrder: (id: string, payload: Record<string, unknown>) =>
+    api.patch(`/orders/${id}`, payload),
+};
+
+export const adminAPI = {
+  getUsers: () => api.get('/admin/users'),
+  updateUser: (id: string, payload: Record<string, unknown>) =>
+    api.patch(`/admin/users/${id}`, payload),
 };
 
 // Locations API

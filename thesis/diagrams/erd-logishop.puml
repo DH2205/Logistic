@@ -1,0 +1,136 @@
+@startuml LogiShop_ERD
+!theme plain
+skinparam linetype ortho
+skinparam RoundCorner 8
+skinparam shadowing false
+skinparam Entity {
+  BackgroundColor #E8F4FC
+  BorderColor #1565C0
+}
+skinparam ArrowColor #333333
+
+title Figure X.X. Entity-relationship diagram — LogiShop (logistics DSS)\n(core persistence; locations link is logical / by label)
+
+entity "users" as users {
+  * id : uuid <<PK>>
+  --
+  * email : text <<unique>>
+  password : text
+  name : text
+  phone : text
+  address : text
+  role : text
+  created_at : timestamptz
+}
+
+entity "order_ups" as ord {
+  * id : uuid <<PK>>
+  --
+  * order_id : text <<UK>>
+  user_id : uuid <<FK>>
+  unique_id_user : uuid
+  sender_name : text
+  receiver_name : text
+  from_location : text
+  to_location : text
+  origin : jsonb
+  destination : jsonb
+  weight : numeric
+  status : text
+  delivery_status : text
+  tracking_number : text
+  carrier : text
+  approval_status : text
+  staff_notes : text
+  reviewed_by : uuid <<FK>>
+  reviewed_at : timestamptz
+  extended_data : jsonb
+  tracking_last_fetched : timestamptz
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "tracking_history" as th {
+  * id : uuid <<PK>>
+  --
+  * order_id : text <<FK>>
+  tracking_number : text
+  activity_date : text
+  activity_time : text
+  activity_datetime : timestamptz
+  location_full : text
+  status_type : text
+  status_description : text
+  carrier : text
+  source : text
+  raw_data : jsonb
+}
+
+entity "locations" as loc {
+  * id : uuid <<PK>>
+  --
+  * name : text
+  type : text
+  latitude : numeric
+  longitude : numeric
+  city : text
+  country : text
+  address : text
+  description : text
+}
+
+entity "products" as prod {
+  * id : uuid <<PK>>
+  --
+  * name : text
+  description : text
+  price : numeric
+  category : text
+  stock : int
+  rating : numeric
+}
+
+entity "exchange_rates" as fx {
+  * id : uuid <<PK>>
+  --
+  period : text
+  currency_from : text
+  currency_to : text
+  rate_per_usd : numeric
+  source : text
+  updated_at : timestamptz
+}
+
+entity "raw_orders" as raw {
+  * id : int <<PK>>
+  --
+  * house_bill_no : varchar <<UK>>
+  tracking_number : varchar
+}
+
+note right of raw
+  Wide CSV / spreadsheet\nimport layout (many columns).
+end note
+
+' Cardinality (Crow's foot)
+users ||--o{ ord : "places requests\n(user_id)"
+
+ord }o--|| users : "reviewed_by\n(optional)"
+
+ord ||--o{ th : "events match\norder_id"
+note bottom of loc
+  Logical only: order endpoints are text/json on\norder_ups; map joins by name or geocode in app.
+end note
+
+note bottom of prod
+  Catalog: no FK to shipments.
+end note
+
+note bottom of fx
+  Reference data for FX display with UPS quotes.
+end note
+
+note bottom of raw
+  Staging import; ETL may populate order_ups.
+end note
+@enduml

@@ -1,8 +1,44 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { normalizeRole } from '@/lib/roles';
 
 export default function ShipmentsPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    const r = normalizeRole(user.role);
+    if (r !== 'staff' && r !== 'admin') {
+      router.replace('/orders');
+    }
+  }, [mounted, user, router]);
+
+  if (!mounted || !user) {
+    return (
+      <div className="container mx-auto px-4 py-12 text-center">
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-600" />
+      </div>
+    );
+  }
+
+  if (normalizeRole(user.role) !== 'staff' && normalizeRole(user.role) !== 'admin') {
+    return null;
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -21,14 +57,14 @@ export default function ShipmentsPage() {
         <p className="text-gray-600 mb-6">
           Track and manage all your shipments in one place
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto mt-8">
           <Link
             href="/orders"
             className="bg-red-50 p-6 rounded-lg hover:bg-red-100 transition"
           >
             <div className="text-3xl mb-2">📦</div>
             <h3 className="font-semibold text-gray-900">View Orders</h3>
-            <p className="text-sm text-gray-600 mt-1">See all your orders</p>
+            <p className="text-sm text-gray-600 mt-1">See all orders</p>
           </Link>
           <Link
             href="/locations"
@@ -38,15 +74,14 @@ export default function ShipmentsPage() {
             <h3 className="font-semibold text-gray-900">Locations</h3>
             <p className="text-sm text-gray-600 mt-1">Manage locations</p>
           </Link>
-          <Link
-            href="/database"
-            className="bg-green-50 p-6 rounded-lg hover:bg-green-100 transition"
-          >
-            <div className="text-3xl mb-2">💾</div>
-            <h3 className="font-semibold text-gray-900">Database</h3>
-            <p className="text-sm text-gray-600 mt-1">View raw data</p>
-          </Link>
         </div>
+        <p className="text-sm text-gray-500 mt-8">
+          For raw table access, open the{' '}
+          <Link href="/database" className="text-red-600 hover:underline font-medium">
+            database view
+          </Link>
+          .
+        </p>
       </div>
     </div>
   );

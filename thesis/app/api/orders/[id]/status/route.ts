@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
+import {
+  findOrderScoped,
+  orderLookupFilter,
+} from '@/lib/order-access';
+import { canManageOrders } from '@/lib/roles';
 
 const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
 
@@ -31,7 +36,7 @@ export async function PUT(
       );
     }
 
-    const order = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const order = await findOrderScoped(id, authResult);
     if (!order) {
       return NextResponse.json(
         { message: 'Order not found' },
@@ -39,12 +44,19 @@ export async function PUT(
       );
     }
 
-    await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).assign({
+    if (!canManageOrders(authResult.role)) {
+      return NextResponse.json(
+        { message: 'Only staff can change order status.' },
+        { status: 403 }
+      );
+    }
+
+    await db.get('order_ups').find(orderLookupFilter(id, authResult)).assign({
       status: status,
       updated_at: new Date().toISOString()
     });
 
-    const updatedOrder = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const updatedOrder = await findOrderScoped(id, authResult);
     return NextResponse.json(updatedOrder);
   } catch (error: any) {
     return NextResponse.json(

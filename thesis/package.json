@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:dijkstra": "node scripts/supabase-db-dijkstra.js",
-    "export:routes": "node scripts/export-order-routes.js"
+    "export:routes": "node scripts/export-order-routes.js",
+    "seed:admin": "node scripts/seed-admin.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

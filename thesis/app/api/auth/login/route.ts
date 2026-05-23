@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { generateToken, comparePassword } from '@/lib/auth';
+import { normalizeRole } from '@/lib/roles';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
@@ -61,8 +62,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const role = normalizeRole(user.role);
+
     // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user.id, role);
 
     // Return user data (exclude password)
     return NextResponse.json({
@@ -74,7 +77,7 @@ export async function POST(request: NextRequest) {
         name: user.name,
         phone: user.phone || '',
         address: user.address || '',
-        role: user.role || 'user'
+        role,
       }
     });
   } catch (error: any) {

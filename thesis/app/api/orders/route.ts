@@ -3,6 +3,8 @@ import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { OrderSchema, formatZodErrors } from '@/lib/validation';
+import { canManageOrders, normalizeApprovalStatus } from '@/lib/roles';
+import { serializeOrderUps } from '@/lib/order-serialize';
 
 // Generate unique orderID
 function generateOrderID() {
@@ -22,64 +24,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch orders using correct database field name (snake_case)
-    const orders = await db.get('order_ups').filter({ unique_id_user: authResult.userId }).value();
-    
-    // Transform snake_case to camelCase for frontend
-    const transformedOrders = orders.map((order: any) => ({
-      id: order.id,
-      orderID: order.order_id,  // order_id -> orderID
-      userId: order.user_id,
-      uniqueIdUser: order.unique_id_user,
-      
-      // Sender information
-      senderName: order.sender_name,
-      senderPhone: order.sender_phone,
-      senderEmail: order.sender_email,
-      senderAddress: order.sender_address,
-      
-      // Receiver information
-      receiverName: order.receiver_name,
-      receiverAddress: order.receiver_address,
-      
-      // Package information
-      packageName: order.package_name || `Package for ${order.receiver_name}`,
-      length: order.length,
-      width: order.width,
-      height: order.height,
-      weight: order.weight,
-      grossWeight: order.gross_weight,
-      measurements: order.measurements || `${order.length}x${order.width}x${order.height} cm`,
-      
-      // Shipping information - handle both string and object formats
-      origin: typeof order.origin === 'string' 
-        ? { country: order.origin }
-        : order.origin || { country: order.from_location || 'Unknown' },
-      destination: typeof order.destination === 'string'
-        ? { country: order.destination }
-        : order.destination || { country: order.to_location || 'Unknown' },
-      fromLocation: order.from_location,
-      toLocation: order.to_location,
-      
-      // Status fields
-      status: order.status,
-      deliveryStatus: order.delivery_status,
-      trackingNumber: order.tracking_number,
-      carrier: order.carrier || 'UPS',
-      
-      // Timestamps
-      submissionTime: order.submission_time,
-      createdAt: order.created_at,
-      updatedAt: order.updated_at,
-      
-      // Legacy fields
-      customerName: order.customer_name,
-      sender: order.sender,
-      
-      // Extended data
-      extendedData: order.extended_data || {},
-    }));
-    
+    let orders: any[];
+
+    if (canManageOrders(authResult.role)) {
+      orders = await db.get('order_ups').filter(() => true).value();
+    } else {
+      const mine = await db.get('order_ups').filter({ unique_id_user: authResult.userId }).value();
+      orders = (mine || []).filter(
+        (o: any) => normalizeApprovalStatus(o.approval_status) === 'approved'
+      );
+    }
+
+    const transformedOrders = orders.map((order: any) => serializeOrderUps(order));
+
     return NextResponse.json(transformedOrders);
   } catch (error: any) {
     console.error('Error fetching orders:', error);
@@ -98,6 +55,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { message: authResult.error },
         { status: authResult.status }
+      );
+    }
+
+    if (authResult.role !== 'customer') {
+      return NextResponse.json(
+        {
+          message:
+            'New shipment requests can only be created by customer accounts. Staff should review the queue instead.',
+        },
+        { status: 403 }
       );
     }
 
@@ -152,6 +119,9 @@ export async function POST(request: NextRequest) {
     // Get current timestamp
     const submissionTime = new Date().toISOString();
 
+    const locFrom = (fromLocation || '').trim() || null;
+    const locTo = (toLocation || '').trim() || null;
+
     // Create order with new structure
     const order = {
       id: uuidv4(),
@@ -176,11 +146,11 @@ export async function POST(request: NextRequest) {
       weight: weight,
       gross_weight: grossWeight ?? weight,
       
-      // Shipping information
-      origin: fromLocation || '',
-      destination: toLocation || '',
-      from_location: fromLocation || '',
-      to_location: toLocation || '',
+      // Shipping: origin/destination are often jsonb in Supabase; from_/to_location stay as text labels
+      origin: locFrom ? { country: locFrom } : { country: 'Unknown' },
+      destination: locTo ? { country: locTo } : { country: 'Unknown' },
+      from_location: locFrom || '',
+      to_location: locTo || '',
       
       // Status fields
       status: 'pending',
@@ -199,6 +169,12 @@ export async function POST(request: NextRequest) {
       customer_name: customerName || senderName,
       sender: sender || senderName,
       
+      // Workflow: awaits staff/admin approval before appearing in customer list
+      approval_status: 'pending_review',
+      reviewed_by: null,
+      reviewed_at: null,
+      staff_notes: null,
+      
       // Extended data for UPS-specific fields
       extended_data: {}
     };
@@ -206,10 +182,18 @@ export async function POST(request: NextRequest) {
     await db.get('order_ups').push(order);
 
     return NextResponse.json(order, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating order:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errObj = error as { code?: string; details?: string; hint?: string };
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      {
+        message: 'Server error',
+        error: errMsg,
+        code: errObj?.code,
+        details: errObj?.details,
+        hint: errObj?.hint,
+      },
       { status: 500 }
     );
   }

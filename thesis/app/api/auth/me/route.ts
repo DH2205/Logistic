@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
+import { normalizeRole } from '@/lib/roles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
       name: user.name,
       phone: user.phone,
       address: user.address,
-      role: user.role
+      role: normalizeRole(user.role),
     });
   } catch (error: any) {
     return NextResponse.json(

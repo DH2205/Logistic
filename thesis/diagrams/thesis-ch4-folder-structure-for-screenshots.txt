@@ -1,0 +1,196 @@
+================================================================================
+CHAPTER 4 — How to document project structure (LogiShop / Next.js monolith)
+================================================================================
+
+The app stays ONE Next.js codebase, but the repo groups **presentation** and
+**server-side modules** into top-level folders for navigation and thesis figures:
+
+  **frontend/**  — shared React UI (`components/`, `contexts/`)
+  **backend/**   — shared logic & integrations under `backend/lib/` (imported in
+                    code as `@/lib/...` via `tsconfig.json` path aliases)
+  **app/**       — App Router: page routes **and** `app/api` route handlers (unchanged)
+
+Next.js still requires `app/` at the project root for routes. Use TWO FIGURES:
+
+  Figure 4.1  =  Presentation / client UI layer
+  Figure 4.2  =  Server API + shared logic + persistence scripts
+
+
+################################################################################
+OVERALL VIEW — “FRONTEND PACK” (one place to see the whole UI surface)
+################################################################################
+
+Use this block for:
+  • a thesis overview paragraph + route table, OR
+  • one **wide** VS Code screenshot: expand `app` so **every route folder** is
+    visible (folders only), with `frontend/components/` and `frontend/contexts/` shown beside it.
+
+Logical frontend pack =  **public/** + **frontend/** + **app/** page routes only —
+for a pure-UI figure, keep **app/api** collapsed to a single line.
+
+  thesis/  (presentation-related top-level folders)
+  │
+  ├── public/                 Static assets
+  │
+  ├── frontend/
+  │   ├── components/         Shared React UI (grouped by role)
+  │   │   ├── layout/
+  │   │   │   ├── Footer.tsx
+  │   │   │   └── Navigation.tsx
+  │   │   ├── maps/
+  │   │   │   ├── LeafletMapView.tsx
+  │   │   │   └── TransportationMap.tsx
+  │   │   └── tracking/
+  │   │       └── TrackingDisplay.tsx
+  │   │
+  │   └── contexts/
+  │       └── AuthContext.tsx     Session / user after login
+  │
+  └── app/                    Next.js App Router — URL mirrors folder path
+      ├── layout.tsx          Root layout (nav, footer, providers)
+      ├── page.tsx            /
+      ├── globals.css
+      ├── login/page.tsx               /login
+      ├── register/page.tsx            /register
+      ├── create-order/page.tsx        /create-order
+      ├── orders/page.tsx              /orders
+      ├── orders/[id]/page.tsx         /orders/:id
+      ├── staff/orders/page.tsx        /staff/orders
+      ├── admin/page.tsx               /admin
+      ├── operations-map/page.tsx      /operations-map
+      ├── locations/page.tsx           /locations
+      ├── shipments/page.tsx           /shipments
+      ├── database/page.tsx          /database
+      ├── settings/exchange-rates/page.tsx   /settings/exchange-rates
+      └── api/                (server — hide or collapse in “frontend” figure)
+
+
+Quick role map for Chapter 4 prose:
+  • Customer flows: create-order → orders → orders/[id]
+  • Staff flows: staff/orders; optional shipments, database, operations-map
+  • Admin: admin
+  • Reference UI: locations, settings/exchange-rates
+
+
+################################################################################
+
+--------------------------------------------------------------------------------
+FIGURE 4.1 — “Frontend / presentation folder structure” (what to expand in VS Code)
+--------------------------------------------------------------------------------
+
+In Explorer, collapse `node_modules` and `.next`. Expand roughly this tree and
+capture the screenshot (your exact file counts may vary):
+
+thesis/
+├── public/                 Static assets (images, favicon, …)
+├── frontend/
+│   ├── components/         layout/ · maps/ · tracking/ (grouped UI)
+│   └── contexts/           React context (e.g. authentication provider)
+├── app/                    Next.js App Router — ROUTES AS PAGES
+│   ├── page.tsx            Marketing / home
+│   ├── layout.tsx          Root layout, global chrome
+│   ├── globals.css         Global styles
+│   ├── login/
+│   ├── register/
+│   ├── create-order/
+│   ├── orders/
+│   │   └── [id]/           Order detail (dynamic segment)
+│   ├── staff/
+│   │   └── orders/         Staff review queue
+│   ├── admin/
+│   ├── operations-map/     Map / tracking focused view
+│   ├── locations/
+│   ├── settings/
+│   │   └── exchange-rates/
+│   ├── shipments/
+│   ├── database/
+│   └── api/                Hide or crop this in Fig 4.1 if you want “pure UI”
+│       └── …               (optional: show only top level `api/` closed)
+
+
+Suggested caption:
+“Figure 4.1. Presentation-layer folder structure (Next.js `app` routes, shared
+UI under `frontend/components`, and client state under `frontend/contexts`).”
+
+
+Paragraph text (4.1.2 a — adapt):
+• **app/** — Each route folder hosts **page UI** (`page.tsx`) and optional layouts;
+  this replaces a classic `src/pages` tree.
+• **frontend/components/** — **Reusable** interface pieces (maps, nav, forms) to keep pages thin.
+• **frontend/contexts/** — Cross-page **client state** (e.g. session awareness after login).
+• **public/** — Static files served as-is.
+
+
+--------------------------------------------------------------------------------
+FIGURE 4.2 — “Backend / application & data layer” (API + lib + DB artefacts)
+--------------------------------------------------------------------------------
+
+Expand for the second screenshot:
+
+thesis/
+├── app/
+│   └── api/                HTTP handlers (controller role in MVC)
+│       ├── auth/           login, register, me
+│       ├── orders/         CRUD, review, refresh, sync-tracking, …
+│       ├── ups/            Carrier rating / tracking proxies
+│       ├── locations/
+│       ├── exchange-rates/
+│       ├── benchmark/      Demo / cost-impact / reroute helpers
+│       ├── routes/         Aggregated route list for map clients
+│       ├── tracking/
+│       └── admin/
+├── backend/
+│   └── lib/                Shared **business** logic, DB helpers, UPS client,
+│       │                   validation, roles, disruption routing (Dijkstra), …
+│       ├── seed-data/      CSV/JSON used by `/api/locations/seed` (airports + IATA coords)
+│       └── supabase/       SSR / client Supabase helpers (code), not SQL migrations
+├── supabase/               SQL migrations & schema reference
+├── scripts/                One-off utilities (seed, export, db-dijkstra, …)
+├── package.json            Dependencies & npm scripts
+└── next.config.ts          (or .mjs) Framework configuration
+
+
+Suggested caption:
+“Figure 4.2. Server and persistence structure (`app/api` route handlers,
+`backend/lib` modules, and `supabase` SQL artefacts).”
+
+
+Paragraph text (4.1.2 a — backend bullet):
+• **app/api/** — **Controller** layer: validates requests, calls `@/lib` (physical path `backend/lib`), returns JSON.
+• **backend/lib/** — **Model / service** helpers: auth, order access, UPS integration,
+  scoring/routing utilities, Zod validation, etc.
+• **supabase/** — **Schema** scripts and migrations for PostgreSQL.
+• **scripts/** — Maintenance and thesis demo tooling (not user-facing).
+
+
+--------------------------------------------------------------------------------
+4.1.2 b — Core algorithm implementation (LogiShop — replace tourism scorer)
+--------------------------------------------------------------------------------
+
+Describe in prose (no code required):
+
+• **Shipment lifecycle** — Customer POST creates **order_ups** with pending review;
+  staff POST **review** updates approval, tracking number, corrections.
+
+• **Tracking refresh** — **sync-tracking** (or refresh orchestration) calls the
+  carrier API, **sorts** scan events chronologically, **de-duplicates** history rows,
+  updates summary fields on the order, returns **activityPath** for the map.
+
+• **Disruption rerouting** — **backend/lib/disruption-router.ts** (or equivalent) builds a
+  hub graph, marks blocked edges, runs **Dijkstra** for a **minimum-cost** alternate
+  path; result is shown on the operations map (in-memory graph; not necessarily
+  stored as edge tables in the ERD).
+
+
+--------------------------------------------------------------------------------
+Screenshot checklist
+--------------------------------------------------------------------------------
+
+Optional “Figure 4.0” or enlarged 4.1:
+[ ] **Overall frontend pack:** one screenshot with `thesis` root showing
+      `public`, `frontend`, `app` side-by-side; under `app`, expand
+      only **one level** of route folders so all page routes appear as a flat list.
+
+[ ] Fig 4.2: **app/api** expanded one level; **backend/lib** expanded one level;
+      **supabase** visible.
+[ ] Same font size / zoom in both figures for a uniform thesis layout.

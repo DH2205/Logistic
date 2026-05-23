@@ -74,13 +74,22 @@ export const OrderSchema = z.object({
     .max(100, 'Sender name is too long')
     .transform(sanitizeString),
 
-  senderPhone: z.string().max(20).transform(sanitizeString).optional(),
+  senderPhone: z
+    .string()
+    .max(40, 'Phone is too long')
+    .transform(sanitizeString)
+    .optional(),
 
   senderEmail: z
-    .string()
-    .email('Invalid sender email')
-    .transform((v) => v.toLowerCase().trim())
-    .optional(),
+    .union([
+      z.literal(''),
+      z.string().email('Invalid sender email'),
+    ])
+    .optional()
+    .transform((v) => {
+      if (v === '' || v === undefined) return undefined;
+      return v.toLowerCase().trim();
+    }),
 
   senderAddress: z.string().max(500).transform(sanitizeString).optional(),
 
@@ -121,6 +130,98 @@ export const OrderSchema = z.object({
 });
 
 export type OrderInput = z.infer<typeof OrderSchema>;
+
+/** Staff/admin order review: status change, notes, optional field corrections. */
+export const OrderReviewSchema = z.object({
+  approvalStatus: z.enum(['pending_review', 'approved', 'rejected', 'pending']).optional(),
+  staffNotes: z.string().max(2000).transform(sanitizeString).optional(),
+  trackingNumber: z.string().max(100).transform(sanitizeString).optional(),
+  senderName: z.string().min(1).max(100).transform(sanitizeString).optional(),
+  senderPhone: z.string().max(20).transform(sanitizeString).optional(),
+  senderEmail: z
+    .string()
+    .email('Invalid sender email')
+    .transform((v) => v.toLowerCase().trim())
+    .optional(),
+  senderAddress: z.string().max(500).transform(sanitizeString).optional(),
+  receiverName: z.string().min(1).max(100).transform(sanitizeString).optional(),
+  receiverAddress: z.string().max(500).transform(sanitizeString).optional(),
+  weight: z.coerce.number().min(0.01).max(9999).optional(),
+  length: z.coerce.number().min(0).max(999).optional(),
+  width: z.coerce.number().min(0).max(999).optional(),
+  height: z.coerce.number().min(0).max(999).optional(),
+  grossWeight: z.coerce.number().min(0).max(9999).optional(),
+  fromLocation: z.string().max(200).transform(sanitizeString).optional(),
+  toLocation: z.string().max(200).transform(sanitizeString).optional(),
+  carrier: z.enum(['UPS', 'FedEx', 'DHL', 'USPS']).optional(),
+  packageName: z.string().max(200).transform(sanitizeString).optional(),
+  measurements: z.string().max(100).transform(sanitizeString).optional(),
+  customerName: z.string().max(100).transform(sanitizeString).optional(),
+  sender: z.string().max(100).transform(sanitizeString).optional(),
+});
+
+export type OrderReviewInput = z.infer<typeof OrderReviewSchema>;
+
+/** Staff PATCH / partial edit: same shipment fields as review, without approval workflow. */
+export const OrderStaffPatchSchema = OrderReviewSchema.omit({
+  approvalStatus: true,
+  staffNotes: true,
+}).refine(
+  (data) => Object.values(data).some((v) => v !== undefined && v !== null),
+  { message: 'Provide at least one field to update' }
+);
+
+export type OrderStaffPatchInput = z.infer<typeof OrderStaffPatchSchema>;
+
+// ── Admin user directory edit ─────────────────────────────────────────────────
+export const AdminUserUpdateSchema = z
+  .object({
+    name: z.string().min(1).max(100).transform(sanitizeString).optional(),
+    email: z
+      .string()
+      .email('Invalid email')
+      .max(255)
+      .transform((v) => v.toLowerCase().trim())
+      .optional(),
+    phone: z.preprocess(
+      (val) => (val === '' ? null : val),
+      z
+        .union([
+          z.null(),
+          z
+            .string()
+            .refine(
+              (v) => /^\+?[\d\s\-().]{7,20}$/.test(v),
+              'Invalid phone number (7–20 digits, spaces, +, -, or parentheses)'
+            )
+            .transform(sanitizeString),
+        ])
+        .optional()
+    ),
+    address: z.preprocess(
+      (val) => (val === '' ? null : val),
+      z
+        .union([
+          z.null(),
+          z.string().max(500).transform((v) => sanitizeString(String(v).trim())),
+        ])
+        .optional()
+    ),
+    role: z.enum(['customer', 'staff', 'admin']).optional(),
+    password: z.string().min(8).max(100).optional(),
+  })
+  .refine(
+    (d) =>
+      d.name !== undefined ||
+      d.email !== undefined ||
+      d.phone !== undefined ||
+      d.address !== undefined ||
+      d.role !== undefined ||
+      d.password !== undefined,
+    { message: 'Provide at least one field to update' }
+  );
+
+export type AdminUserUpdateInput = z.infer<typeof AdminUserUpdateSchema>;
 
 // ── Shared error formatter ────────────────────────────────────────────────────
 /**

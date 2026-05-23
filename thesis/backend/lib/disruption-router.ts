@@ -63,6 +63,10 @@ export interface RerouteResult {
     detourPct: number;
     routeFound: boolean;
     hopCount: number;
+    /** Next longer feasible hub-route length (deviation-path approximation), if any */
+    secondBestHubKm?: number;
+    /** Kilometres saved vs that second-best feasible route (0 if only one distinct route exists) */
+    distanceSavedVsSecondBestKm?: number;
   };
 }
 
@@ -70,6 +74,8 @@ export interface FindRerouteOptions {
   hubs?: Hub[];
   edges?: RouteEdge[];
   logMetrics?: boolean;
+  /** If true, compute a longer alternative feasible path when possible (for DSS “optimisation gain”) */
+  includeSecondBest?: boolean;
 }
 
 // ─── Hub graph ───────────────────────────────────────────────────────────────
@@ -772,6 +778,36 @@ function dijkstra(
   return { path, totalKm: dist.get(endId) ?? Infinity };
 }
 
+/**
+ * Approximate second-shortest *feasible* hub path under the same disruption rules:
+ * remove one edge from the shortest path, re-run Dijkstra, keep the best longer total.
+ * (Deviation-path step; exact k-shortest would use Yen’s algorithm.)
+ */
+function secondShortestHubPathKm(
+  startId: string,
+  endId: string,
+  disruptions: DisruptionZoneInput[],
+  hubs: Hub[],
+  edges: RouteEdge[],
+  shortestPathIds: string[],
+  shortestTotalKm: number
+): number | null {
+  if (shortestPathIds.length < 2 || !Number.isFinite(shortestTotalKm)) return null;
+  let bestLonger = Infinity;
+  for (let i = 0; i < shortestPathIds.length - 1; i++) {
+    const u = shortestPathIds[i];
+    const v = shortestPathIds[i + 1];
+    const filtered = edges.filter(
+      (e) => !((e.from === u && e.to === v) || (e.from === v && e.to === u)),
+    );
+    const { totalKm } = dijkstra(startId, endId, disruptions, hubs, filtered);
+    if (Number.isFinite(totalKm) && totalKm > shortestTotalKm + 1e-3 && totalKm < bestLonger) {
+      bestLonger = totalKm;
+    }
+  }
+  return bestLonger === Infinity ? null : bestLonger;
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /** Return the hub closest to the given coordinates. */
@@ -915,6 +951,44 @@ export function thesisStrategicCorridorBlocked(
 }
 
 /**
+ * Thesis Scenario S1 (US–Iran / Hormuz): fixed hub sequence for the demo
+ * tracking number, matching the written thesis narrative.
+ */
+export const THESIS_S1_DEMO_TRACKING_NUMBER = '1ZB8678F6735719517';
+
+export function isThesisS1DemoTracking(trackingNumber: string | null | undefined): boolean {
+  const a = (trackingNumber || '').replace(/\s+/g, '').toUpperCase();
+  const b = THESIS_S1_DEMO_TRACKING_NUMBER.toUpperCase();
+  return a.length > 0 && a === b;
+}
+
+/**
+ * Hong Kong → Singapore → Colombo → Djibouti → Cairo/Suez → Rome/Genoa →
+ * Paris/Le Havre → New York → Chicago
+ */
+export function getThesisS1RerouteWaypoints(): RouteWaypoint[] {
+  return [
+    { id: 's1-hk', name: 'Hong Kong', lat: 22.3193, lng: 114.1694 },
+    { id: 's1-sin', name: 'Singapore', lat: 1.3521, lng: 103.8198 },
+    { id: 's1-cmb', name: 'Colombo', lat: 6.9271, lng: 79.8612 },
+    { id: 's1-jib', name: 'Djibouti', lat: 11.589, lng: 43.145 },
+    { id: 's1-suez', name: 'Cairo / Suez', lat: 30.0055, lng: 32.5475 },
+    { id: 's1-rom', name: 'Rome / Genoa', lat: 41.9028, lng: 12.4964 },
+    { id: 's1-par', name: 'Paris / Le Havre', lat: 48.8566, lng: 2.3522 },
+    { id: 's1-nyc', name: 'New York', lat: 40.7128, lng: -74.006 },
+    { id: 's1-ord', name: 'Chicago', lat: 41.8781, lng: -87.6298 },
+  ];
+}
+
+export function pathLengthKmForWaypoints(wps: RouteWaypoint[]): number {
+  let sum = 0;
+  for (let i = 1; i < wps.length; i++) {
+    sum += haversine(wps[i - 1].lat, wps[i - 1].lng, wps[i].lat, wps[i].lng);
+  }
+  return sum;
+}
+
+/**
  * Compute the optimal rerouted path from (fromLat,fromLng) to (toLat,toLng)
  * that avoids the given disruption zones.
  *
@@ -932,6 +1006,7 @@ export function findReroute(
   const hubs = options.hubs ?? LOGISTICS_HUBS;
   const edges = options.edges ?? RAW_EDGES;
   const logMetrics = options.logMetrics ?? true;
+  const includeSecondBest = options.includeSecondBest ?? false;
   const startTime = performance.now();
   const startHub = findNearestHub(fromLat, fromLng, hubs);
   const endHub   = findNearestHub(toLat,   toLng, hubs);
@@ -939,6 +1014,32 @@ export function findReroute(
   const isBlocked = directRouteBlocked(fromLat, fromLng, toLat, toLng, disruptions);
 
   const { path, totalKm } = dijkstra(startHub.id, endHub.id, disruptions, hubs, edges);
+
+  let secondBestHubKm: number | undefined;
+  let distanceSavedVsSecondBestKm: number | undefined;
+  if (
+    includeSecondBest &&
+    disruptions.length > 0 &&
+    path.length >= 2 &&
+    Number.isFinite(totalKm) &&
+    path[0] === startHub.id &&
+    path[path.length - 1] === endHub.id
+  ) {
+    const s2 = secondShortestHubPathKm(
+      startHub.id,
+      endHub.id,
+      disruptions,
+      hubs,
+      edges,
+      path,
+      totalKm
+    );
+    if (s2 !== null) {
+      secondBestHubKm = s2;
+      distanceSavedVsSecondBestKm = Math.round((s2 - totalKm) * 100) / 100;
+    }
+  }
+
   const hubById = new Map(hubs.map((h) => [h.id, h]));
 
   const waypoints: RouteWaypoint[] = path
@@ -977,6 +1078,8 @@ export function findReroute(
       detourPct,
       routeFound: waypoints.length > 1 && Number.isFinite(totalKm),
       hopCount: waypoints.length,
+      secondBestHubKm,
+      distanceSavedVsSecondBestKm,
     },
   };
 }

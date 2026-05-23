@@ -1,0 +1,65 @@
+@startuml LogiShop_ERD_Simplified
+!theme plain
+skinparam shadowing false
+skinparam RoundCorner 10
+skinparam PackageBorderColor #1565C0
+skinparam PackageBackgroundColor #E3F2FD
+skinparam Entity {
+  BackgroundColor #FAFAFA
+  BorderColor #333333
+}
+skinparam ArrowThickness 1.2
+top to bottom direction
+
+title LogiShop ERD — Part A: Core shipment & tracking
+
+package "Core (FK-linked)" {
+  entity "users" as U {
+    * id : uuid <<PK>>
+    --
+    * email : text <<UK>>
+    password : text
+    name : text
+    role : text
+  }
+
+  entity "order_ups" as O {
+    * id : uuid <<PK>>
+    --
+    * order_id : text <<UK>>
+    user_id : uuid <<FK users>>
+    reviewed_by : uuid <<FK users>>
+    tracking_number : text
+    approval_status : text
+    delivery_status : text
+    from_location : text
+    to_location : text
+    __ optional __ sender/receiver, weights, jsonb, timestamps
+  }
+
+  entity "tracking_history" as T {
+    * id : uuid <<PK>>
+    --
+    * order_id : text <<FK order_ups.order_id>>
+    tracking_number : text
+    activity_datetime : timestamptz
+    location_full : text
+    status_description : text
+    carrier : text
+    source : text
+    __ optional __ raw_data jsonb, activity_date/time
+  }
+}
+
+U ||--o{ O : "1:N (user_id)"
+O ||--o{ T : "1:N (order_id)"
+
+note right of O
+  **Also:** reviewed_by → users.id\n(optional staff reviewer)
+end note
+
+note bottom
+  **Part A** shows only enforced / drawn FK-style links.\n`tracking_history.order_id` matches business key `order_ups.order_id`.
+end note
+
+@enduml

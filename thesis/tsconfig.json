@@ -19,6 +19,9 @@
       }
     ],
     "paths": {
+      "@/components/*": ["./frontend/components/*"],
+      "@/contexts/*": ["./frontend/contexts/*"],
+      "@/lib/*": ["./backend/lib/*"],
       "@/*": ["./*"]
     }
   },

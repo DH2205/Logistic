@@ -1,0 +1,886 @@
+Detailed Code Explanation for "Dang Nguyen Truong Huy-new 4.docx"
+==================================================================
+
+Source document:
+ProjectL/Dang Nguyen Truong Huy-new 4.docx
+
+Related implementation inspected:
+ProjectL/thesis/backend/lib/disruption-router.ts
+ProjectL/thesis/frontend/components/maps/TransportationMap.tsx
+ProjectL/thesis/backend/lib/tracking-reroute-insight.ts
+
+
+1. What code the document is describing
+---------------------------------------
+
+The Word document is a thesis document for the LogiShop web application. It is not a pure source-code file. The code-related section appears mainly in Chapter 4, under "Code Implementation", and the most important code/pseudocode explains the disruption-aware rerouting logic.
+
+The document describes a logistics web application built with:
+
+- Next.js and React for the web application.
+- TypeScript for typed frontend and backend code.
+- Next.js App Router for pages and API route handlers.
+- Supabase/PostgreSQL for the database.
+- Backend helper modules under backend/lib.
+- A map-based frontend component for showing shipping routes and disruption zones.
+
+The key algorithm explained in the thesis is a disruption-aware route planner. Its purpose is to find an alternative route between an origin and a destination when a disruption, such as war, natural disaster, port congestion, or closure, blocks or penalizes part of the logistics network.
+
+The three main pseudocode blocks in the document are:
+
+1. findReroute()
+2. edgeWeight()
+3. dijkstra()
+
+Together, these functions build a graph of logistics hubs, assign weights to route edges, block dangerous edges when necessary, and compute the shortest feasible route.
+
+
+2. High-level workflow
+----------------------
+
+The overall rerouting process works like this:
+
+1. The user or system has an origin and destination, expressed as latitude and longitude.
+2. The system has a list of logistics hubs, such as Singapore, Ho Chi Minh City, Dubai, Cairo, London, New York, and other major airports/seaports.
+3. The system has route edges between hubs. Each edge has a distance in kilometers and a transport mode such as air, sea, or land.
+4. The system also has active disruption zones. A disruption zone is represented as a bounding box with north, south, east, and west coordinates, plus a severity level.
+5. The system snaps the origin coordinate to the nearest logistics hub.
+6. The system snaps the destination coordinate to the nearest logistics hub.
+7. It checks whether the direct route between origin and destination intersects any disruption zone.
+8. It runs Dijkstra's shortest-path algorithm on the hub graph.
+9. Each edge is evaluated by edgeWeight().
+10. If an edge touches a high or critical disruption zone, that edge is treated as blocked.
+11. If an edge touches a low or medium disruption zone, that edge becomes more expensive by applying a multiplier.
+12. Dijkstra selects the lowest-cost feasible path that avoids blocked edges.
+13. The result is returned as ordered waypoints, total route distance, and metrics such as detour distance and execution time.
+14. The frontend map displays the rerouted path and shows disruption information to the user.
+
+In plain English: the system looks at a shipping route, checks if any part of the path is unsafe or disrupted, removes or penalizes risky connections, and then finds the best alternative path through the remaining logistics network.
+
+
+3. Project structure explained
+------------------------------
+
+The document says the project is organized into frontend, backend, API, database, and shared helper areas.
+
+Frontend:
+
+The frontend is built with React and Next.js. It contains reusable UI components such as navigation, footer, maps, and tracking widgets. The map component is especially important because it visualizes shipment routes, disruptions, and rerouted paths.
+
+The frontend uses the Next.js App Router. This means pages are placed inside the app directory, where each route folder contains a page.tsx file. For example, a page.tsx file represents a web page that Next.js can render.
+
+The frontend also uses TypeScript/React files with the .tsx extension. These files can contain both TypeScript logic and JSX markup.
+
+Backend:
+
+The backend is integrated into the same Next.js project. Instead of using a separate Express server with server.js, the application uses Next.js API route handlers under app/api.
+
+For example:
+
+- app/api/auth/... handles login, register, and user authentication.
+- app/api/orders/... handles order creation, order review, order status, tracking history, and order refresh.
+- app/api/ups/... handles UPS-related proxy or tracking calls.
+- app/api/benchmark/... handles benchmark routes used for thesis testing.
+
+Shared backend logic lives under backend/lib. This includes:
+
+- Authentication helpers.
+- Database helpers.
+- Validation logic.
+- Carrier/tracking integration.
+- Geocoding helpers.
+- Disruption and rerouting logic.
+
+Database:
+
+The database uses Supabase/PostgreSQL. The thesis describes tables such as users, order_ups, and tracking_history.
+
+The relationship is:
+
+- One user can create many orders.
+- One staff/admin user can review many orders.
+- One order can have many tracking history events.
+
+This lets the application support customer orders, staff approval, shipment tracking, and historical event timelines.
+
+
+4. Data structures used by the rerouting code
+---------------------------------------------
+
+The real implementation uses several TypeScript interfaces. These interfaces define the shape of the data that the rerouting algorithm expects.
+
+BBox:
+
+BBox represents a geographic bounding box.
+
+It contains:
+
+- north: northern latitude limit.
+- south: southern latitude limit.
+- east: eastern longitude limit.
+- west: western longitude limit.
+
+A disruption zone uses a BBox to describe the affected geographic area.
+
+Hub:
+
+Hub represents a logistics location.
+
+It contains:
+
+- id: short hub identifier, such as SG, VN, HK, US_NY.
+- name: human-readable hub name.
+- lat: latitude.
+- lng: longitude.
+- type: airport, seaport, or storage.
+
+These hubs are the nodes of the route graph.
+
+RouteEdge:
+
+RouteEdge represents a connection between two hubs.
+
+It contains:
+
+- from: starting hub id.
+- to: ending hub id.
+- distanceKm: approximate distance between the hubs.
+- mode: air, sea, or land.
+
+These edges are the graph connections that Dijkstra uses.
+
+DisruptionZoneInput:
+
+DisruptionZoneInput represents an active disruption.
+
+It contains:
+
+- id: disruption identifier.
+- name: disruption name.
+- bbox: affected geographic box.
+- severity: low, medium, high, or critical.
+
+Severity is very important because it decides whether a route edge is only penalized or fully blocked.
+
+RouteWaypoint:
+
+RouteWaypoint is the simplified object returned to the frontend for drawing on the map.
+
+It contains:
+
+- id.
+- name.
+- lat.
+- lng.
+
+RerouteResult:
+
+RerouteResult is the final output of findReroute().
+
+It contains:
+
+- waypoints: ordered hubs in the selected route.
+- totalDistanceKm: total distance of the selected route.
+- blocked: true if the original direct route intersects a disruption.
+- metrics: optional performance and route-quality data.
+
+The metrics include:
+
+- execMs: execution time.
+- nodeCount: number of hubs.
+- edgeCount: number of route edges.
+- disruptionCount: number of active disruptions.
+- directDistanceKm: direct great-circle distance.
+- detourKm: extra distance compared with the direct route.
+- detourPct: detour percentage.
+- routeFound: whether a valid route exists.
+- hopCount: number of waypoints in the selected route.
+- secondBestHubKm: distance of the next longer feasible path, if calculated.
+- distanceSavedVsSecondBestKm: how much distance the chosen route saves compared with the second-best route.
+
+
+5. findReroute() explained in detail
+------------------------------------
+
+findReroute() is the main public function for route optimization.
+
+The pseudocode in the document is:
+
+function findReroute(fromLat, fromLng, toLat, toLng, disruptions, options):
+    hubs  <- options.hubs ?? LOGISTICS_HUBS
+    edges <- options.edges ?? RAW_EDGES
+    startHub <- nearest hub to origin
+    endHub   <- nearest hub to destination
+    blocked <- directRouteBlocked(origin, destination, disruptions)
+    { path, totalKm } <- dijkstra(startHub.id, endHub.id, disruptions, hubs, edges)
+    waypoints <- hub records for each id in path
+    directKm <- haversine(origin, destination)
+    detourKm <- totalKm - directKm
+    detourPct <- detourKm / directKm * 100
+    return route result
+
+The function receives:
+
+- fromLat and fromLng: coordinates of the shipment origin.
+- toLat and toLng: coordinates of the shipment destination.
+- disruptions: active disruption zones.
+- options: optional custom hubs, custom edges, logging flag, and second-best-path flag.
+
+Step 1: Choose the hub and edge lists
+
+The function first decides which graph to use.
+
+If options.hubs exists, it uses that. Otherwise, it uses LOGISTICS_HUBS.
+
+If options.edges exists, it uses that. Otherwise, it uses RAW_EDGES.
+
+This design makes the function flexible. The normal application uses the default logistics network, while benchmark/testing code can inject a smaller or custom graph.
+
+Step 2: Start timing
+
+The implementation calls performance.now() before running the route calculation.
+
+This is used for thesis benchmarking and for proving that the reroute algorithm runs quickly enough for interactive map use.
+
+Step 3: Snap origin and destination to nearest hubs
+
+The user's real coordinates may not exactly match a logistics hub. For example, a customer's address may be in Ho Chi Minh City, but the graph uses a hub called "Ho Chi Minh City".
+
+The function calls findNearestHub() twice:
+
+- once for the origin.
+- once for the destination.
+
+findNearestHub() loops through all hubs and calculates the Haversine distance from the given coordinate to each hub. The hub with the smallest distance becomes the graph start or graph end.
+
+This is called "snapping" the real coordinate to the nearest graph node.
+
+Step 4: Check whether the direct route is blocked
+
+The function calls directRouteBlocked().
+
+This checks whether the direct geographic arc between origin and destination intersects any active disruption bounding box.
+
+This value does not itself calculate the alternative route. It tells the UI and the metrics whether the original direct route is affected.
+
+Step 5: Run Dijkstra
+
+The function calls:
+
+dijkstra(startHub.id, endHub.id, disruptions, hubs, edges)
+
+Dijkstra returns:
+
+- path: an array of hub IDs.
+- totalKm: total route cost/distance.
+
+This is the core optimization step.
+
+Step 6: Optionally compute a second-best route
+
+If includeSecondBest is true, the implementation tries to compute a second feasible route that is longer than the optimal route.
+
+It does this by removing one edge from the shortest path, rerunning Dijkstra, and keeping the best longer result.
+
+This is not a full k-shortest-path algorithm. The code comments mention that an exact version would use Yen's algorithm. However, this approximation is useful for thesis decision-support metrics because it can show how much better the selected route is compared with another feasible route.
+
+Step 7: Convert hub IDs into map waypoints
+
+Dijkstra returns IDs such as SG, IN, EG, GB.
+
+The frontend map needs full coordinates and names, so findReroute() converts the path IDs into RouteWaypoint objects.
+
+Each waypoint contains:
+
+- id.
+- name.
+- lat.
+- lng.
+
+Step 8: Calculate metrics
+
+The function calculates:
+
+- execution time.
+- direct distance.
+- detour distance.
+- detour percentage.
+- routeFound.
+- hop count.
+
+directDistanceKm is calculated with the Haversine formula, which estimates great-circle distance between two latitude/longitude coordinates.
+
+detourKm is:
+
+total route distance - direct distance
+
+detourPct is:
+
+detour distance / direct distance * 100
+
+Step 9: Return the final result
+
+The returned object gives the UI everything it needs:
+
+- the route to draw.
+- the distance.
+- whether the direct route was blocked.
+- performance and comparison metrics.
+
+In simple terms, findReroute() is the main coordinator. It prepares data, chooses start/end hubs, checks disruptions, runs the shortest-path algorithm, calculates useful metrics, and returns a frontend-friendly result.
+
+
+6. edgeWeight() explained in detail
+-----------------------------------
+
+edgeWeight() decides the cost of using one route edge.
+
+The pseudocode in the document is:
+
+function edgeWeight(edge, hubById, disruptions):
+    a <- hubById[edge.from]
+    b <- hubById[edge.to]
+    multiplier <- 1
+    for each disruption d:
+        if hub a or hub b is inside d.bbox OR arc(a -> b) intersects d.bbox:
+            if d.severity is high or critical:
+                return infinity
+            else:
+                multiplier <- max(multiplier, severityMultiplier[d.severity])
+    return edge.distanceKm * multiplier
+
+The function receives:
+
+- edge: the route connection being evaluated.
+- hubById: a map for finding hub details by ID.
+- disruptions: active disruption zones.
+
+Step 1: Look up the edge endpoints
+
+Each edge stores only IDs:
+
+- edge.from.
+- edge.to.
+
+edgeWeight() uses hubById to get the full hub objects for both endpoints. These full hub objects include latitude and longitude.
+
+Step 2: Start with normal cost
+
+The multiplier starts at 1.
+
+That means, by default, the cost of the edge is simply:
+
+edge.distanceKm
+
+Step 3: Check every disruption
+
+For every active disruption, the function checks if the edge touches the disruption.
+
+An edge is considered affected if:
+
+- the starting hub is inside the disruption box.
+- the ending hub is inside the disruption box.
+- the geographic arc between the two hubs intersects the disruption box.
+
+This is better than only checking endpoints. An edge can pass through a dangerous region even if both endpoints are outside the region.
+
+Step 4: Apply severity rules
+
+The severity levels behave differently:
+
+- low: edge is still usable, but cost is multiplied.
+- medium: edge is still usable, but cost is multiplied more heavily.
+- high: edge is blocked.
+- critical: edge is blocked.
+
+In the real code, low uses multiplier 3, medium uses multiplier 10, high uses 100 in the multiplier table but is still treated as a hard block by the edgeWeight logic, and critical is Infinity.
+
+The important behavior is:
+
+- low/medium disruptions discourage use of the edge.
+- high/critical disruptions remove the edge from the usable graph.
+
+Step 5: Return weighted distance
+
+If the edge is not blocked, the function returns:
+
+edge.distanceKm * multiplier
+
+If the edge is blocked, it returns:
+
+Infinity
+
+Dijkstra ignores edges with Infinity weight.
+
+In simple terms, edgeWeight() is the risk model. It translates real-world disruption severity into graph cost. Safe edges stay cheap, risky edges become expensive, and unacceptable edges become impossible.
+
+
+7. dijkstra() explained in detail
+---------------------------------
+
+dijkstra() finds the shortest feasible path between two hubs.
+
+The pseudocode in the document is:
+
+function dijkstra(startId, endId, disruptions, hubs, edges):
+    build an undirected adjacency list from edges
+    dist[all hubs] <- infinity
+    dist[startId] <- 0
+    priority queue <- start node
+    while queue is not empty:
+        pop hub with smallest distance
+        if hub is endId: break
+        for each neighbor:
+            w <- edgeWeight(edge)
+            if w is infinity: continue
+            if dist[current] + w < dist[neighbor]:
+                update distance
+                update predecessor
+                push neighbor into queue
+    reconstruct path
+    return path and total distance
+
+Step 1: Build a hub lookup map
+
+The function creates:
+
+hubById = Map<hub id, hub object>
+
+This allows fast lookup when edgeWeight() needs hub coordinates.
+
+Step 2: Build an adjacency list
+
+The edges are stored as route connections. Dijkstra needs to know which neighbors can be reached from each hub.
+
+The code creates an adjacency list:
+
+Map<hub id, list of connected neighbors>
+
+The graph is treated as undirected, so every edge is added in both directions.
+
+For example, if there is an edge:
+
+Singapore -> Mumbai
+
+The adjacency list allows:
+
+Singapore -> Mumbai
+Mumbai -> Singapore
+
+This makes sense for the thesis model because logistics routes can generally be modeled as bidirectional corridors for planning.
+
+Step 3: Initialize distances
+
+Every hub starts with distance Infinity.
+
+The start hub gets distance 0.
+
+This means:
+
+- the system knows the cost to reach the start is zero.
+- the system does not yet know how to reach any other hub.
+
+Step 4: Initialize predecessors
+
+The function also keeps a prev map.
+
+prev stores the previous hub used to reach each hub in the shortest known route.
+
+This is needed later to reconstruct the final path.
+
+Step 5: Process the queue
+
+The implementation uses a simple sorted array as a priority queue.
+
+At each loop:
+
+1. Sort the queue by current distance.
+2. Remove the hub with the smallest distance.
+3. Ignore it if it is an outdated queue entry.
+4. Stop early if it is the destination hub.
+5. Check all neighboring edges.
+
+A binary heap would be faster for very large graphs, but the thesis graph is small, so a sorted array is acceptable and simpler.
+
+Step 6: Evaluate each neighbor
+
+For each neighbor, the function calls edgeWeight().
+
+This is where disruption handling enters Dijkstra.
+
+If edgeWeight() returns Infinity, the edge is skipped. That means Dijkstra acts as if the connection does not exist.
+
+If the edge is usable, the function calculates:
+
+new distance = current distance + edge weight
+
+If the new distance is lower than the best known distance for the neighbor, the code updates:
+
+- dist[neighbor].
+- prev[neighbor].
+- queue.
+
+Step 7: Reconstruct the path
+
+After the loop, the algorithm starts from endId and walks backward through prev.
+
+For example:
+
+end <- Paris <- Cairo <- Singapore
+
+It inserts each hub at the front of the path array, producing:
+
+Singapore -> Cairo -> Paris -> end
+
+Step 8: Return result
+
+The function returns:
+
+- path: array of hub IDs.
+- totalKm: total cost/distance to the destination.
+
+In simple terms, dijkstra() is the actual route finder. It uses edgeWeight() to understand which routes are safe, risky, or blocked, and then chooses the cheapest route that can still reach the destination.
+
+
+8. directRouteBlocked() explained
+---------------------------------
+
+directRouteBlocked() checks whether the straight geographic route between origin and destination intersects any active disruption.
+
+It receives:
+
+- fromLat.
+- fromLng.
+- toLat.
+- toLng.
+- disruptions.
+
+For every disruption, it calls arcIntersectsBbox().
+
+If the direct path intersects any disruption box, it returns true.
+
+If not, it returns false.
+
+This function is important because the UI needs to know whether the original route is affected. Even if Dijkstra can find another path, the user should understand why the reroute is happening.
+
+
+9. Haversine distance explained
+-------------------------------
+
+The rerouting code uses the Haversine formula to estimate the distance between two latitude/longitude points on Earth.
+
+Latitude and longitude are angles, not flat x/y coordinates. A simple Euclidean distance is not accurate for long international routes.
+
+Haversine estimates the great-circle distance, which is closer to the shortest path over the Earth's surface.
+
+The code uses Haversine for:
+
+- finding the nearest hub to a coordinate.
+- measuring direct origin-to-destination distance.
+- measuring route segment lengths.
+
+
+10. Disruption bounding boxes explained
+---------------------------------------
+
+The thesis models disruptions using bounding boxes.
+
+For example, a conflict zone can be represented as:
+
+- north latitude.
+- south latitude.
+- east longitude.
+- west longitude.
+
+This is a simplified geographic model. It does not represent complex political borders or exact storm shapes, but it is practical for a thesis prototype because it makes intersection checks easier.
+
+The algorithm checks:
+
+- whether a hub is inside the box.
+- whether a route arc passes through the box.
+
+If either is true, the disruption affects the edge.
+
+
+11. How the frontend map uses the algorithm
+-------------------------------------------
+
+The frontend TransportationMap component imports findReroute().
+
+When there is a tracked order and one or more active disruption zones, the map can calculate an alternative path.
+
+The frontend flow is:
+
+1. Determine the origin and destination coordinates of the tracked order.
+2. Check active disruption zones.
+3. For a special thesis demo tracking number, show a fixed scenario route.
+4. Otherwise, call findReroute().
+5. If the result contains at least two waypoints, save them in state as the rerouted path.
+6. Calculate extra distance compared with a direct approximation.
+7. Store disruption names and distance-saving metrics in rerouteInfo.
+8. Render the rerouted path on the map.
+
+This means the algorithm is not only theoretical. It directly supports the visual route displayed to users.
+
+
+12. Special thesis demo scenario
+--------------------------------
+
+The real code includes a special fixed route for the thesis Scenario S1 demo tracking number:
+
+1ZB8678F6735719517
+
+For this case, the frontend uses a predefined route:
+
+Hong Kong -> Singapore -> Colombo -> Djibouti -> Cairo/Suez -> Rome/Genoa -> Paris/Le Havre -> New York -> Chicago
+
+This exists so the thesis scenario and screenshots remain consistent with the written narrative.
+
+For normal cases, the system uses findReroute() dynamically.
+
+
+13. tracking-reroute-insight.ts explained
+-----------------------------------------
+
+The backend helper tracking-reroute-insight.ts provides server-safe reroute summary logic.
+
+It does three main things:
+
+1. Parse stored disruption data.
+2. Convert stored disruption records into active disruption zones.
+3. Compute route insight for tracking pages or backend responses.
+
+parseStoredDisruptions()
+
+This function receives a raw JSON string from stored map state or database content.
+
+If the string is empty, it returns an empty list.
+
+If the JSON is invalid, it also returns an empty list.
+
+If the JSON is valid and contains an array, it returns that array.
+
+This protects the application from crashing when stored disruption data is missing or malformed.
+
+storedDisruptionsToZones()
+
+This function filters only active disruptions.
+
+For each active disruption, it chooses a bounding box from:
+
+- the disruption's stored bbox, or
+- regionToBbox(disruption.region), or
+- regionToBbox(disruption.name).
+
+If no bounding box can be found, the disruption is ignored.
+
+The result is a clean list of DisruptionZoneInput objects that findReroute() can use.
+
+computeTrackingRerouteInsight()
+
+This function receives:
+
+- origin label.
+- destination label.
+- active disruption zones.
+
+It geocodes the origin and destination labels into coordinates.
+
+Then it checks:
+
+- whether the direct route is blocked.
+- whether the thesis strategic corridor is blocked.
+
+If neither is blocked, it returns null because no reroute insight is needed.
+
+If a route is affected, it calls findReroute() with disruptions enabled and includeSecondBest enabled.
+
+It also calculates a baseline route with no disruptions.
+
+Then it returns:
+
+- blockedBy: disruption names.
+- optimalHubKm: distance of the best feasible route.
+- secondBestHubKm: distance of the next longer feasible route, if available.
+- distanceSavedKm: how much better the optimal route is than the second feasible route.
+- baselineClearNetworkKm: route distance if disruptions are ignored.
+- detourVsClearNetworkKm: extra distance caused by avoiding disruptions.
+- hubChain: readable route chain for display.
+
+This helper is useful because it converts low-level route results into business-friendly logistics insight.
+
+
+14. Complexity and performance
+------------------------------
+
+The thesis states that Dijkstra's algorithm has a complexity of:
+
+O((V + E) log V)
+
+when implemented with a binary heap priority queue.
+
+In the actual code, the queue is a sorted array. For a very large graph, this can be slower than a heap. However, the route graph used by the thesis is small, so it is still fast enough for interactive use and easier to understand.
+
+The important variables are:
+
+- V: number of hubs.
+- E: number of route edges.
+
+For each route calculation, the system:
+
+1. Builds the adjacency list.
+2. Runs Dijkstra.
+3. Calls edgeWeight() for candidate edges.
+4. Reconstructs the chosen route.
+5. Computes metrics.
+
+Because the demo graph is small, the thesis reports sub-50ms rerouting in practical scenarios.
+
+
+15. Why Dijkstra is suitable here
+---------------------------------
+
+Dijkstra is suitable because:
+
+- The graph has non-negative edge weights.
+- Distances and penalties are positive.
+- The goal is to find the minimum-cost route.
+- Disrupted edges can be represented as high cost or Infinity.
+- The algorithm is deterministic and easy to explain in a thesis.
+
+Dijkstra would not be suitable if:
+
+- edge weights were negative.
+- the system needed real-time global carrier schedules.
+- the system needed many alternative paths at enterprise scale.
+- the graph changed constantly and required advanced dynamic routing.
+
+For the scope of this thesis, Dijkstra is a good choice because it is simple, explainable, and effective for a small logistics decision-support prototype.
+
+
+16. Important design idea: penalties versus hard blocks
+------------------------------------------------------
+
+The code separates disruptions into two categories:
+
+Soft disruptions:
+
+- low severity.
+- medium severity.
+
+These do not completely remove a route. Instead, they multiply the cost. Dijkstra may still use the edge if every other path is worse.
+
+Hard disruptions:
+
+- high severity.
+- critical severity.
+
+These make an edge unusable by returning Infinity.
+
+This is realistic because not all disruptions are equal. Bad weather may increase risk and delay, but a war zone or closed corridor should be avoided completely.
+
+
+17. Example route behavior
+--------------------------
+
+Imagine the origin is Vietnam and the destination is the United States.
+
+Without disruptions, the system may find a route through hubs such as:
+
+Vietnam -> Singapore -> India -> Dubai -> Egypt/Suez -> Europe -> United States
+
+If a high-severity disruption covers the Gulf or Middle East corridor, then edges touching that zone return Infinity.
+
+Dijkstra skips those blocked edges.
+
+The algorithm then searches for another route through safe hubs.
+
+The returned result might have:
+
+- a longer total distance.
+- a positive detourKm.
+- a positive detourPct.
+- blocked = true.
+- a waypoint chain that avoids the disruption zone.
+
+The map then displays that rerouted path so staff or users can understand the operational impact.
+
+
+18. Strengths of the code design
+--------------------------------
+
+The rerouting code has several strengths:
+
+1. It separates responsibilities clearly.
+
+findReroute() coordinates the route calculation.
+edgeWeight() handles disruption risk.
+dijkstra() handles shortest-path search.
+directRouteBlocked() handles direct-route impact detection.
+
+2. It uses typed data structures.
+
+TypeScript interfaces make the expected inputs and outputs clear.
+
+3. It supports testing and benchmarking.
+
+findReroute() accepts custom hubs and edges through options. This makes it easier to benchmark or test smaller scenarios.
+
+4. It returns useful metrics.
+
+The algorithm returns not just a path, but also execution time, detour distance, detour percentage, and route-found status.
+
+5. It connects algorithm output to real UI behavior.
+
+The frontend uses waypoints directly to render the route on the map.
+
+
+19. Limitations of the code design
+----------------------------------
+
+The approach also has limitations:
+
+1. Bounding boxes are simplified.
+
+Real disruptions may have complex shapes, not simple rectangles.
+
+2. The hub graph is manually modeled.
+
+The quality of the route depends on the quality and completeness of LOGISTICS_HUBS and RAW_EDGES.
+
+3. The queue implementation is simple.
+
+The sorted-array queue is fine for a small graph, but a binary heap would scale better.
+
+4. The second-best route is approximate.
+
+The implementation removes one edge from the shortest path and reruns Dijkstra. This is useful, but it is not a full k-shortest-path algorithm.
+
+5. Real logistics routing is more complex.
+
+Actual routing may depend on carrier schedules, customs rules, capacity, fuel cost, port congestion, contracts, and time windows.
+
+The thesis implementation is therefore best understood as a decision-support prototype, not a complete enterprise logistics optimizer.
+
+
+20. Summary in simple words
+---------------------------
+
+The code described in the Word document is mainly about route optimization for the LogiShop logistics application.
+
+The system models the world as a graph:
+
+- hubs are nodes.
+- shipping connections are edges.
+- distances are edge costs.
+- disruptions modify or block edge costs.
+
+findReroute() receives an origin, destination, and disruption list. It finds the nearest hubs, checks if the direct route is blocked, runs Dijkstra's algorithm, calculates metrics, and returns a list of waypoints.
+
+edgeWeight() decides whether each connection is safe, risky, or impossible to use.
+
+dijkstra() finds the cheapest feasible path through the hub network.
+
+The frontend map then uses the returned waypoints to draw the rerouted path and show useful information such as extra distance and blocked disruption zones.
+
+Overall, this code turns disruption handling from a manual guess into a calculable route-planning feature. It supports the thesis goal of improving international freight visibility, route understanding, and decision-making under disruption scenarios.

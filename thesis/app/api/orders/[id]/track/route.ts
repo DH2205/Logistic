@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
-
-const validDeliveryStatuses = ['processing', 'packed', 'shipped', 'in-transit', 'out-for-delivery', 'delivered'];
+import {
+  findOrderScoped,
+  orderLookupFilter,
+} from '@/lib/order-access';
+import { canManageOrders } from '@/lib/roles';
+import { parseDeliveryStatusInput } from '@/lib/delivery-status';
 
 export async function PUT(
   request: NextRequest,
@@ -22,16 +26,17 @@ export async function PUT(
     const { id } = await params;
 
     const body = await request.json();
-    const { deliveryStatus } = body;
+    const { deliveryStatus: rawStatus } = body;
+    const deliveryStatus = parseDeliveryStatusInput(rawStatus);
 
-    if (!deliveryStatus || !validDeliveryStatuses.includes(deliveryStatus)) {
+    if (!deliveryStatus) {
       return NextResponse.json(
         { message: 'Invalid delivery status' },
         { status: 400 }
       );
     }
 
-    const order = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const order = await findOrderScoped(id, authResult);
     if (!order) {
       return NextResponse.json(
         { message: 'Order not found' },
@@ -39,12 +44,23 @@ export async function PUT(
       );
     }
 
-    await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).assign({
+    if (!canManageOrders(authResult.role)) {
+      return NextResponse.json(
+        {
+          message:
+            'Only staff can set delivery status. Customers see the status your team assigns.',
+        },
+        { status: 403 }
+      );
+    }
+
+    await db.get('order_ups').find(orderLookupFilter(id, authResult)).assign({
       delivery_status: deliveryStatus,
-      updated_at: new Date().toISOString()
+      status: deliveryStatus,
+      updated_at: new Date().toISOString(),
     });
 
-    const updatedOrder = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const updatedOrder = await findOrderScoped(id, authResult);
     return NextResponse.json(updatedOrder);
   } catch (error: any) {
     return NextResponse.json(

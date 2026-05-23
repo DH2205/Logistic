@@ -1,6 +1,116 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { authenticateToken } from '@/lib/middleware';
+import { serializeOrderUps } from '@/lib/order-serialize';
+import {
+  OrderStaffPatchSchema,
+  formatZodErrors,
+} from '@/lib/validation';
+import { mergeShipmentPatchIntoDbUpdates } from '@/lib/order-shipment-updates';
+import {
+  findOrderScoped,
+  canCustomerViewOrder,
+  orderLookupFilter,
+} from '@/lib/order-access';
+import { canManageOrders, normalizeApprovalStatus } from '@/lib/roles';
+
+/**
+ * PATCH /api/orders/:id
+ * Staff/admin: update any shipment fields (sender, receiver, package dims, route labels, tracking, carrier, …).
+ */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const authResult = await authenticateToken(request);
+
+    if ('error' in authResult) {
+      return NextResponse.json(
+        { message: authResult.error },
+        { status: authResult.status }
+      );
+    }
+
+    const { id } = await params;
+    const order = await findOrderScoped(id, authResult);
+    if (!order) {
+      return NextResponse.json({ message: 'Order not found' }, { status: 404 });
+    }
+
+    if (!canManageOrders(authResult.role)) {
+      return NextResponse.json(
+        { message: 'Only staff or admin can edit orders.' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json().catch(() => ({}));
+
+    /** Accept snake_case keys from older clients */
+    const normalized = {
+      ...body,
+      fromLocation: body.fromLocation ?? body.from_location,
+      toLocation: body.toLocation ?? body.to_location,
+      senderName: body.senderName ?? body.sender_name,
+      senderPhone: body.senderPhone ?? body.sender_phone,
+      senderEmail: body.senderEmail ?? body.sender_email,
+      senderAddress: body.senderAddress ?? body.sender_address,
+      receiverName: body.receiverName ?? body.receiver_name,
+      receiverAddress: body.receiverAddress ?? body.receiver_address,
+      packageName: body.packageName ?? body.package_name,
+      grossWeight: body.grossWeight ?? body.gross_weight,
+      trackingNumber: body.trackingNumber ?? body.tracking_number,
+      customerName: body.customerName ?? body.customer_name,
+    };
+
+    const parsed = OrderStaffPatchSchema.safeParse(normalized);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { message: 'Invalid update', errors: formatZodErrors(parsed.error.issues) },
+        { status: 400 }
+      );
+    }
+
+    const updatedAt = new Date().toISOString();
+    const updates: Record<string, unknown> = { updated_at: updatedAt };
+    mergeShipmentPatchIntoDbUpdates(parsed.data, updates);
+
+    const meaningfulKeys = Object.keys(updates).filter((k) => k !== 'updated_at');
+    if (meaningfulKeys.length === 0) {
+      return NextResponse.json(
+        { message: 'No changes supplied.' },
+        { status: 400 }
+      );
+    }
+
+    const updateResult = await db
+      .get('order_ups')
+      .find(orderLookupFilter(id, authResult))
+      .assign(updates);
+
+    const updated = updateResult.value();
+    if (!updated) {
+      return NextResponse.json(
+        { message: 'Failed to update order' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Order updated.',
+      order: serializeOrderUps(updated as Record<string, unknown>),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error patching order:', error);
+    return NextResponse.json(
+      { message: 'Server error', error: message },
+      { status: 500 }
+    );
+  }
+}
 
 export async function DELETE(
   request: NextRequest,
@@ -18,7 +128,7 @@ export async function DELETE(
 
     const { id } = await params;
 
-    const order = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const order = await findOrderScoped(id, authResult);
     if (!order) {
       return NextResponse.json(
         { message: 'Order not found' },
@@ -26,7 +136,16 @@ export async function DELETE(
       );
     }
 
-    await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).remove();
+    if (!canManageOrders(authResult.role)) {
+      if (normalizeApprovalStatus((order as { approval_status?: string }).approval_status) !== 'pending_review') {
+        return NextResponse.json(
+          { message: 'Only pending orders can be deleted by the customer.' },
+          { status: 403 }
+        );
+      }
+    }
+
+    await db.get('order_ups').find(orderLookupFilter(id, authResult)).remove();
 
     return NextResponse.json({ message: 'Order deleted successfully' });
   } catch (error: any) {
@@ -54,82 +173,22 @@ export async function GET(
 
     // Await params Promise in Next.js 16 to correctly extract id
     const { id } = await params;
-
-    // Search by order_id (the user-friendly ID like ORD-...) instead of UUID
-    const order = await db.get('order_ups').find({ order_id: id, unique_id_user: authResult.userId }).value();
+    const order = await findOrderScoped(id, authResult);
     if (!order) {
-      console.error(`❌ Order not found: order_id="${id}", user_id="${authResult.userId}"`);
+      return NextResponse.json({ message: 'Order not found' }, { status: 404 });
+    }
+
+    if (!canCustomerViewOrder(order, authResult.role)) {
       return NextResponse.json(
-        { message: 'Order not found' },
-        { status: 404 }
+        {
+          message:
+            'This order is not visible until staff approves it.',
+        },
+        { status: 403 }
       );
     }
 
-    console.log(`✅ Order found: ${order.order_id} for user ${authResult.userId}`);
-
-    // Transform snake_case to camelCase for frontend
-    const transformedOrder = {
-      id: order.id,
-      orderID: order.order_id,  // order_id -> orderID to match frontend
-      userId: order.user_id,
-      uniqueIdUser: order.unique_id_user,
-      
-      // Sender information
-      senderName: order.sender_name,
-      senderPhone: order.sender_phone,
-      senderEmail: order.sender_email,
-      senderAddress: order.sender_address,
-      
-      // Receiver information
-      receiverName: order.receiver_name,
-      receiverAddress: order.receiver_address,
-      
-      // Package information
-      packageName: order.package_name || `Package for ${order.receiver_name}`,
-      length: order.length,
-      width: order.width,
-      height: order.height,
-      weight: order.weight,
-      grossWeight: order.gross_weight,
-      measurements: order.measurements || `${order.length}x${order.width}x${order.height} cm`,
-      
-      // Shipping information
-      // Priority: from_location (set by UPS sync) > origin JSON column > 'Unknown'
-      origin: {
-        country:
-          order.from_location ||
-          (typeof order.origin === 'string' ? order.origin : order.origin?.country) ||
-          'Unknown',
-      },
-      destination: {
-        country:
-          order.to_location ||
-          (typeof order.destination === 'string' ? order.destination : order.destination?.country) ||
-          'Unknown',
-      },
-      fromLocation: order.from_location,
-      toLocation: order.to_location,
-      
-      // Status fields
-      status: order.status,
-      deliveryStatus: order.delivery_status,
-      trackingNumber: order.tracking_number,
-      carrier: order.carrier || 'UPS',
-      
-      // Timestamps
-      submissionTime: order.submission_time,
-      createdAt: order.created_at,
-      updatedAt: order.updated_at,
-      
-      // Legacy fields
-      customerName: order.customer_name,
-      sender: order.sender,
-      
-      // Extended data
-      extendedData: order.extended_data || {},
-    };
-
-    return NextResponse.json(transformedOrder);
+    return NextResponse.json(serializeOrderUps(order as Record<string, unknown>));
   } catch (error: any) {
     console.error('Error fetching order:', error);
     return NextResponse.json(

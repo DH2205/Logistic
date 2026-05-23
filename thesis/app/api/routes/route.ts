@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { authenticateToken } from "@/lib/middleware";
+import { canManageOrders } from "@/lib/roles";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,12 +19,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Filter to only this user's rows
-    const { data: routes, error } = await supabase
+    const staffOrAdmin = canManageOrders(authResult.role);
+    const limit = staffOrAdmin ? 3000 : 1000;
+
+    let query = supabase
       .from("order_ups")
       .select("id, order_id, from_location, to_location, status, created_at")
-      .eq("unique_id_user", authResult.userId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (!staffOrAdmin) {
+      query = query.eq("unique_id_user", authResult.userId);
+    }
+
+    const { data: routes, error } = await query;
 
     if (error) {
       console.error("[API /api/routes] Database error:", error);

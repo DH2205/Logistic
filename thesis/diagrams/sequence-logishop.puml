@@ -1,0 +1,85 @@
+@startuml LogiShop_Sequence_ThesisStyle
+!theme plain
+skinparam Shadowing false
+skinparam SequenceMessageAlign center
+skinparam sequence {
+  ArrowColor #222222
+  LifeLineBorderColor #222222
+  LifeLineBackgroundColor #FFFFFF
+  ParticipantBorderColor #6B4E9B
+  ParticipantBackgroundColor #E8E0F5
+      ' light purple header/footer feel (same style family as reference)
+  ActorBorderColor #6B4E9B
+  ActorBackgroundColor #E8E0F5
+}
+
+title Figure X.X. Sequence diagram — main interactions in LogiShop (logistics DSS)
+
+actor "User" as U
+participant "Frontend" as FE
+participant "Backend" as BE
+database "Database" as DB
+
+== Connect and submit shipment request ==
+
+U -> FE : Connect to home page
+U -> FE : Navigate to create-shipment page
+U -> FE : Enter shipment details (parties,\npackage, corridor / locations, …)
+
+U -> FE : Submit shipment request
+FE -> BE : Send shipment request (validated payload + auth token)
+
+BE -> BE : Validate input and enforce\nrole = customer
+
+BE -> DB : Insert new order (status pending review)
+DB --> BE : Confirm saved
+
+BE --> FE : Return confirmation + order identifier
+FE --> U : Display “Request submitted —\nawaits staff review”
+
+== Staff review and approval ==
+
+note over U, FE
+  **Operational user** (staff or administrator)\n— same Frontend / Backend / Database stack
+end note
+
+U -> FE : Open staff review queue
+FE -> BE : Request pending shipment list
+BE -> DB : Query orders awaiting approval
+DB --> BE : Return pending rows
+BE --> FE : Return list
+FE --> U : Display review queue
+
+U -> FE : Approve request / add or correct data\n(assign carrier tracking number, …)
+FE -> BE : Send approval and shipment updates
+
+BE -> BE : Verify staff or admin role
+
+BE -> DB : Update order (approved, tracking #, notes, …)
+DB --> BE : Return updated record
+
+BE --> FE : Return updated order
+FE --> U : Display approved shipment state
+
+== Track visibility (refresh) ==
+
+U -> FE : Open order detail / tracking view
+U -> FE : Request latest carrier status (sync)
+
+FE -> BE : Request refresh of order + tracking
+
+BE -> BE : Authorize user for this order\n(scoped by role and approval rules)
+
+BE -> DB : Fetch order and tracking number
+DB --> BE : Return order row
+
+opt tracking number is assigned
+  BE -> BE : Call carrier tracking service\n(e.g. UPS) and normalize events
+  BE -> DB : Store scan history / update delivery fields
+  DB --> BE : Confirm persistence
+end
+
+BE --> FE : Return current order and tracking timeline
+FE --> U : Display status, activities,\nand operations map (if used)
+
+@enduml

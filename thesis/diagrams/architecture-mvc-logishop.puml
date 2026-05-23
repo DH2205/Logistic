@@ -1,0 +1,43 @@
+@startuml LogiShop_MVC_Figure34
+!theme plain
+skinparam shadowing false
+skinparam defaultFontSize 11
+skinparam ArrowColor #2E7D32
+skinparam sequenceMessageAlign center
+
+title Figure 3.4. Illustration of MVC design pattern — LogiShop
+
+skinparam participant {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+}
+
+actor "User" as U
+
+participant "Controller\n(API routes, auth,\norchestration in lib)" as C #C8E6C9
+
+participant "Model\n(entities, validation,\nSupabase access, rules)" as M #C8E6C9
+
+participant "View\n(Next.js pages &\ncomponents)" as V #C8E6C9
+
+database "Database\n(Supabase / PostgreSQL)" as DB #F8BBD9
+
+== Request / response cycle (conceptual) ==
+
+U -> C : (1) Request\nSubmit form, open page,\nsync tracking, …
+
+C -> M : (2) Contacts\nValidation, persistence,\ncarrier orchestration
+
+M <-> DB : Read / write\n{ Abstraction layer }\n(Supabase client, serializers)
+
+M --> C : (3) Returns\nOrders, status, DTOs
+
+C -> V : (4) Delivers\nData for render\n(JSON / props)
+
+V -> U : (5) Shows\nLists, map, forms,\nstatus messages
+
+note bottom
+  In a Next.js monolith, the View (browser React) usually reaches the Controller through HTTP\n  requests to `app/api/**`. Shared Model logic in `lib/` keeps validation, roles, and data access\n  consistent for orders, tracking sync, and staff workflows.
+end note
+
+@enduml
