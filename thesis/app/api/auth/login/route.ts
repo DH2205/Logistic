@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) {
     const retryAfter = Math.ceil((limit.resetAt - Date.now()) / 1000);
     return NextResponse.json(
-      { message: `Too many login attempts. Try again in ${retryAfter} seconds.` },
+      { message: `Too many login attempts. Try again in ${retryAfter} seconds.`, retryAfter },
       {
         status: 429,
         headers: {

@@ -140,13 +140,13 @@ export async function POST(request: NextRequest) {
       }
       
       return NextResponse.json(
-        { message: 'Database error: ' + (dbError.message || 'Failed to create user. Please check your database configuration.') },
+        { message: 'Failed to create user. Please try again.' },
         { status: 500 }
       );
     }
-  } catch (error: any) {
+  } catch {
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
