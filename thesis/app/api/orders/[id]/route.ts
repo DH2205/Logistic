@@ -106,7 +106,7 @@ export async function PATCH(
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error patching order:', error);
     return NextResponse.json(
-      { message: 'Server error', error: message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -148,10 +148,10 @@ export async function DELETE(
     await db.get('order_ups').find(orderLookupFilter(id, authResult)).remove();
 
     return NextResponse.json({ message: 'Order deleted successfully' });
-  } catch (error: any) {
+  } catch {
     console.error('Error deleting order:', error);
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -189,10 +189,10 @@ export async function GET(
     }
 
     return NextResponse.json(serializeOrderUps(order as Record<string, unknown>));
-  } catch (error: any) {
+  } catch {
     console.error('Error fetching order:', error);
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }

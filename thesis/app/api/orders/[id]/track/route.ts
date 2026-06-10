@@ -62,9 +62,9 @@ export async function PUT(
 
     const updatedOrder = await findOrderScoped(id, authResult);
     return NextResponse.json(updatedOrder);
-  } catch (error: any) {
+  } catch {
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
