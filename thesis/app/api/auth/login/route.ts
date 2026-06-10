@@ -80,9 +80,9 @@ export async function POST(request: NextRequest) {
         role,
       }
     });
-  } catch (error: any) {
+  } catch {
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }

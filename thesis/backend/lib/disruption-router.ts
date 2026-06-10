@@ -1031,6 +1031,52 @@ export function validateRoute(
 
 
 
+// ─── Binary min-heap (priority queue) ────────────────────────────────────────
+
+class MinHeap {
+  private heap: { id: string; d: number }[] = [];
+
+  get size() { return this.heap.length; }
+
+  push(item: { id: string; d: number }) {
+    this.heap.push(item);
+    this._bubbleUp(this.heap.length - 1);
+  }
+
+  pop(): { id: string; d: number } | undefined {
+    if (this.heap.length === 0) return undefined;
+    const top = this.heap[0];
+    const last = this.heap.pop()!;
+    if (this.heap.length > 0) {
+      this.heap[0] = last;
+      this._sinkDown(0);
+    }
+    return top;
+  }
+
+  private _bubbleUp(i: number) {
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.heap[parent].d <= this.heap[i].d) break;
+      [this.heap[parent], this.heap[i]] = [this.heap[i], this.heap[parent]];
+      i = parent;
+    }
+  }
+
+  private _sinkDown(i: number) {
+    const n = this.heap.length;
+    while (true) {
+      let smallest = i;
+      const l = 2 * i + 1, r = 2 * i + 2;
+      if (l < n && this.heap[l].d < this.heap[smallest].d) smallest = l;
+      if (r < n && this.heap[r].d < this.heap[smallest].d) smallest = r;
+      if (smallest === i) break;
+      [this.heap[smallest], this.heap[i]] = [this.heap[i], this.heap[smallest]];
+      i = smallest;
+    }
+  }
+}
+
 // ─── Dijkstra ────────────────────────────────────────────────────────────────
 
 function dijkstra(
@@ -1056,12 +1102,11 @@ function dijkstra(
   const prev = new Map<string, string | null>(hubs.map((h) => [h.id, null]));
   dist.set(startId, 0);
 
-  // Simple priority queue via sorted array (sufficient for benchmark scales here)
-  const queue: { id: string; d: number }[] = [{ id: startId, d: 0 }];
+  const pq = new MinHeap();
+  pq.push({ id: startId, d: 0 });
 
-  while (queue.length) {
-    queue.sort((a, b) => a.d - b.d);
-    const { id: u, d } = queue.shift()!;
+  while (pq.size > 0) {
+    const { id: u, d } = pq.pop()!;
     if (d > dist.get(u)!) continue;
     if (u === endId) break;
 
@@ -1073,7 +1118,7 @@ function dijkstra(
       if (nd < dist.get(v)!) {
         dist.set(v, nd);
         prev.set(v, u);
-        queue.push({ id: v, d: nd });
+        pq.push({ id: v, d: nd });
       }
     }
   }
@@ -1083,7 +1128,7 @@ function dijkstra(
   while (cur) {
     path.unshift(cur);
     cur = prev.get(cur) ?? null;
-    if (path.length > hubs.length) break; // cycle guard
+    if (path.length > hubs.length + 1) break;
   }
 
   return { path, totalKm: dist.get(endId) ?? Infinity };
