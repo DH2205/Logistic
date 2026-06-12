@@ -711,7 +711,7 @@ function arcIntersectsBbox(
   bbox: BBox,
   samples = 24
 ): boolean {
-  let lngA = a.lng;
+  const lngA = a.lng;
   let lngB = b.lng;
 
   // Always take the shorter longitude path (handles date-line crossing)
@@ -1414,9 +1414,30 @@ export function findReroute(
   // If no substitution happened, run normal Dijkstra to originalGateway
   if (!selectedRoute && status !== 'no_safe_route') {
     const { path, totalKm } = dijkstra(startHub.id, endHub.id, disruptions, hubs, edges, allBlockedHubIds);
-    selectedRoute = { path, totalKm, score: totalKm };
+    const hubById = new Map(hubs.map((h) => [h.id, h]));
+    const candidateWaypoints: RouteWaypoint[] = path
+      .filter((id) => hubById.has(id))
+      .map((id) => {
+        const h = hubById.get(id)!;
+        return { id: h.id, name: h.name, lat: h.lat, lng: h.lng };
+      });
+    const validation = validateRoute(candidateWaypoints, disruptions, {
+      directDistanceKm: directDistanceKmEarly,
+      totalDistanceKm: totalKm,
+      originalGatewayId: originalGateway.id,
+    });
+    if (!validation.ok) {
+      status = 'no_safe_route';
+      reasons.push(...validation.failures);
+      rejectedRoutes.push({
+        gateway: originalGateway.name,
+        reason: validation.failures.join('; '),
+      });
+    } else {
+      selectedRoute = { path, totalKm, score: totalKm };
+    }
     // Surface disruptions that affected edge scoring (but didn't fully block) for transparency
-    if (isBlocked) {
+    if (isBlocked && selectedRoute) {
       reasons.push(`Direct route blocked; rerouted via ${path.length - 2} intermediate hub(s).`);
       for (const d of disruptions) {
         const sev = d.severity ?? 'medium';

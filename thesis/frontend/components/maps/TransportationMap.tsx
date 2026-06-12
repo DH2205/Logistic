@@ -20,6 +20,7 @@ import {
   DEMO_FROM,
   DEMO_TO,
   type DisruptionZoneInput,
+  type DisruptionType as RouteDisruptionType,
   type RouteWaypoint,
   type BBox,
 } from '@/lib/disruption-router';
@@ -113,6 +114,22 @@ const DISRUPTION_TYPE_META: Record<DisruptionType, { label: string; icon: string
   port_closure:     { label: 'Port Closure',     icon: '🚫', color: 'bg-gray-100 text-gray-800 border-gray-300' },
   pandemic:         { label: 'Pandemic',         icon: '🦠', color: 'bg-purple-100 text-purple-800 border-purple-300' },
   other:            { label: 'Other',            icon: '⚠️', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+};
+
+const mapDisruptionTypeForRouting = (type: DisruptionType): RouteDisruptionType | undefined => {
+  switch (type) {
+    case 'port_closure':
+      return 'port_closure';
+    case 'war':
+      return 'conflict_zone';
+    case 'storm':
+    case 'natural_disaster':
+      return 'storm';
+    case 'pandemic':
+      return 'congestion';
+    case 'other':
+      return undefined;
+  }
 };
 
 const SEVERITY_META: Record<DisruptionSeverity, { label: string; color: string }> = {
@@ -327,6 +344,7 @@ export default function TransportationMap({
     warnings?: string[];
     alternatives?: Array<{ gateway: string; score: number }>;
   } | null>(null);
+  const [showRerouteDetail, setShowRerouteDetail] = useState(false);
 
   // Convert active disruptions to DisruptionZoneInput[].
   // If a disruption was saved without a bbox (e.g. region wasn't in the lookup
@@ -337,7 +355,15 @@ export default function TransportationMap({
       .map((d) => {
         const bbox = d.bbox ?? regionToBbox(d.region) ?? regionToBbox(d.name) ?? null;
         if (!bbox) return null;
-        return { id: d.id, name: d.name, bbox, severity: d.severity };
+        const routeType = mapDisruptionTypeForRouting(d.type);
+        return {
+          id: d.id,
+          name: d.name,
+          bbox,
+          severity: d.severity,
+          ...(routeType ? { type: routeType } : {}),
+          ...(d.description ? { description: d.description } : {}),
+        };
       })
       .filter((d): d is DisruptionZoneInput => d !== null),
     [disruptions]
@@ -1055,8 +1081,8 @@ export default function TransportationMap({
       const result = findReroute(fromLat, fromLng, toLat, toLng, activeDisruptionZones, {
         includeSecondBest: true,
       });
-      if (result.waypoints.length >= 2) {
-        setReroutedPath(result.waypoints);
+      if (result.waypoints.length >= 2 || result.status === 'no_safe_route') {
+        setReroutedPath(result.waypoints.length >= 2 ? result.waypoints : null);
         const directKm = Math.round(
           Math.sqrt((toLat - fromLat) ** 2 + (toLng - fromLng) ** 2) * 111
         );
@@ -1069,7 +1095,9 @@ export default function TransportationMap({
             ? result.metrics.secondBestHubKm
             : null;
         setRerouteInfo({
-          extraKm: Math.round(result.totalDistanceKm - directKm),
+          extraKm: Number.isFinite(result.totalDistanceKm)
+            ? Math.round(result.totalDistanceKm - directKm)
+            : 0,
           blockedBy: result.blockedBy && result.blockedBy.length > 0
             ? result.blockedBy
             : activeDisruptionZones.map((d) => d.name),
@@ -1941,7 +1969,7 @@ export default function TransportationMap({
                     </div>
 
                     {/* ── Disruption / Reroute Alert ───────────────────── */}
-                    {originalPathBlocked && reroutedPath && reroutedPath.length >= 2 && (
+                    {originalPathBlocked && ((reroutedPath && reroutedPath.length >= 2) || rerouteInfo?.status === 'no_safe_route') && (
                       <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4 space-y-2 shadow">
                         <div className="flex items-center gap-2 font-bold text-red-700 text-sm">
                           <span className="text-lg">⚠️</span>
@@ -1953,15 +1981,17 @@ export default function TransportationMap({
                             {rerouteInfo.extraKm > 0 && ` · Detour adds ~${rerouteInfo.extraKm.toLocaleString()} km`}
                           </p>
                         )}
-                        <div className="bg-white rounded-lg p-3 border border-red-200 text-xs text-gray-700">
-                          <span className="font-semibold text-red-700">Dijkstra Reroute: </span>
-                          {reroutedPath.map((w, i) => (
-                            <span key={w.id}>
-                              {i > 0 && <span className="text-red-400 mx-1">→</span>}
-                              <span className="font-medium">{w.name}</span>
-                            </span>
-                          ))}
-                        </div>
+                        {reroutedPath && reroutedPath.length >= 2 && (
+                          <div className="bg-white rounded-lg p-3 border border-red-200 text-xs text-gray-700">
+                            <span className="font-semibold text-red-700">Dijkstra Reroute: </span>
+                            {reroutedPath.map((w, i) => (
+                              <span key={w.id}>
+                                {i > 0 && <span className="text-red-400 mx-1">→</span>}
+                                <span className="font-medium">{w.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {rerouteInfo?.distanceSavedKm != null && rerouteInfo.distanceSavedKm > 0 && (
                           <p className="text-xs text-red-800 font-medium bg-white/70 rounded-lg px-3 py-2 border border-red-200">
                             Distance saved vs next feasible hub route:{' '}
@@ -2016,6 +2046,16 @@ export default function TransportationMap({
                         <p className="text-xs text-gray-500">
                           Map shows the original route in grey (dashed) and the safe alternative in green.
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => setShowRerouteDetail(true)}
+                          className="w-full mt-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition shadow-sm"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                          </svg>
+                          View Full Reroute Details
+                        </button>
                       </div>
                     )}
 
@@ -2262,6 +2302,7 @@ export default function TransportationMap({
   }
 
   return (
+    <>
     <div className="bg-white rounded-xl shadow-xl overflow-hidden border border-gray-200">
       {/* Header */}
       <div className="px-6 py-5 border-b-2 border-gray-200 bg-gradient-to-r from-gray-50 to-white">
@@ -2708,5 +2749,306 @@ export default function TransportationMap({
         </div>
       </div>
     </div>
+
+    {/* ── Reroute Detail Modal ─────────────────────────────────────── */}
+    {showRerouteDetail && rerouteInfo && (
+      (() => {
+        // ── helpers ────────────────────────────────────────────────
+        const legKm = (a: RouteWaypoint, b: RouteWaypoint) =>
+          Math.round(Math.sqrt((b.lat - a.lat) ** 2 + (b.lng - a.lng) ** 2) * 111);
+
+        const legs: Array<{ from: RouteWaypoint; to: RouteWaypoint; km: number }> =
+          reroutedPath && reroutedPath.length >= 2
+            ? reroutedPath.slice(0, -1).map((wp, i) => ({
+                from: wp,
+                to: reroutedPath[i + 1],
+                km: legKm(wp, reroutedPath[i + 1]),
+              }))
+            : [];
+
+        const totalRerouteKm = legs.reduce((s, l) => s + l.km, 0);
+        const directKm = Math.max(1, totalRerouteKm - rerouteInfo.extraKm);
+
+        // Cost model (sea freight baseline — conservative, industry-standard estimates)
+        const FUEL_RATE_PER_KM    = 0.15;  // USD per km (20-ft container equivalent)
+        const HUB_HANDLING_FEE    = 450;   // USD per extra transshipment hub
+        const SEA_KM_PER_DAY      = 520;   // avg container ship speed (20-22 knots)
+        const CO2_KG_PER_KM       = 0.20;  // kg CO2 per km (20-tonne cargo sea)
+
+        const extraHubs    = Math.max(0, legs.length - 2);
+        const fuelExtra    = Math.round(rerouteInfo.extraKm * FUEL_RATE_PER_KM);
+        const handlingFees = extraHubs * HUB_HANDLING_FEE;
+        const totalExtra   = fuelExtra + handlingFees;
+        const delayDays    = (rerouteInfo.extraKm / SEA_KM_PER_DAY).toFixed(1);
+        const extraCo2     = Math.round(rerouteInfo.extraKm * CO2_KG_PER_KM);
+
+        const pctChange = directKm > 0
+          ? Math.round(((totalRerouteKm - directKm) / directKm) * 100)
+          : 0;
+
+        return (
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowRerouteDetail(false); }}
+          >
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-red-600 to-red-800 rounded-t-2xl px-6 py-4 flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-white font-bold text-lg">
+                    <span>⚠️</span>
+                    Reroute Analysis Report
+                  </div>
+                  <p className="text-red-200 text-xs mt-0.5">
+                    Dijkstra-computed alternative · {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRerouteDetail(false)}
+                  className="text-white/70 hover:text-white transition text-xl leading-none mt-0.5"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+
+                {/* ── 1. Disruption Context ──────────────────────── */}
+                <section>
+                  <h3 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5">
+                    <span className="text-red-500">🚫</span> Disruption Trigger
+                  </h3>
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="flex flex-wrap gap-2">
+                      {rerouteInfo.blockedBy.map((b, i) => (
+                        <span key={i} className="bg-red-100 text-red-800 text-xs font-semibold px-2.5 py-1 rounded-full border border-red-300">
+                          {b}
+                        </span>
+                      ))}
+                    </div>
+                    {rerouteInfo.reasons && rerouteInfo.reasons.length > 0 && (
+                      <ul className="text-xs text-red-800 list-disc list-inside space-y-0.5 mt-1">
+                        {rerouteInfo.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                      </ul>
+                    )}
+                    {rerouteInfo.warnings && rerouteInfo.warnings.length > 0 && (
+                      <ul className="text-xs text-amber-800 list-disc list-inside space-y-0.5 bg-amber-50 rounded-lg px-3 py-1.5 border border-amber-200 mt-1">
+                        {rerouteInfo.warnings.map((w, i) => <li key={i}>⚠ {w}</li>)}
+                      </ul>
+                    )}
+                    {rerouteInfo.originalGateway && rerouteInfo.selectedGateway &&
+                      rerouteInfo.originalGateway !== rerouteInfo.selectedGateway && (
+                      <p className="text-xs text-red-800 mt-1">
+                        <span className="font-semibold">Gateway substituted: </span>
+                        <span className="line-through text-gray-500">{rerouteInfo.originalGateway}</span>
+                        <span className="mx-1 text-red-600">→</span>
+                        <strong>{rerouteInfo.selectedGateway}</strong>
+                      </p>
+                    )}
+                  </div>
+                </section>
+
+                {/* ── 2. Route Comparison ─────────────────────────── */}
+                <section>
+                  <h3 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5">
+                    <span>🗺️</span> Route Comparison
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-100 border border-gray-300 rounded-xl px-4 py-3">
+                      <p className="text-xs text-gray-500 font-medium mb-1">Original (blocked)</p>
+                      <p className="text-2xl font-bold text-gray-400 line-through">~{directKm.toLocaleString()} km</p>
+                      <p className="text-xs text-gray-500 mt-1">Direct corridor · now unsafe</p>
+                    </div>
+                    <div className="bg-green-50 border border-green-300 rounded-xl px-4 py-3">
+                      <p className="text-xs text-green-700 font-medium mb-1">Rerouted (active)</p>
+                      <p className="text-2xl font-bold text-green-700">~{totalRerouteKm.toLocaleString()} km</p>
+                      <p className="text-xs text-green-600 mt-1">
+                        +{rerouteInfo.extraKm.toLocaleString()} km detour (+{pctChange}%)
+                      </p>
+                    </div>
+                  </div>
+                  {rerouteInfo.distanceSavedKm != null && rerouteInfo.distanceSavedKm > 0 && (
+                    <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-xs text-blue-800">
+                      <strong>Optimisation gain:</strong> Dijkstra selected the shortest available safe path —
+                      saves <strong>~{rerouteInfo.distanceSavedKm.toLocaleString()} km</strong> vs
+                      next feasible route
+                      {rerouteInfo.secondBestHubKm != null && (
+                        <span className="text-blue-600"> (~{rerouteInfo.secondBestHubKm.toLocaleString()} km)</span>
+                      )}.
+                    </div>
+                  )}
+                </section>
+
+                {/* ── 3. Hop-by-Hop Breakdown ─────────────────────── */}
+                {legs.length > 0 && (
+                  <section>
+                    <h3 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5">
+                      <span>📍</span> Hop-by-Hop Path Breakdown
+                    </h3>
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 text-gray-500 uppercase text-[10px]">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium w-6">#</th>
+                            <th className="px-3 py-2 text-left font-medium">From</th>
+                            <th className="px-3 py-2 text-left font-medium">To</th>
+                            <th className="px-3 py-2 text-right font-medium">Dist.</th>
+                            <th className="px-3 py-2 text-right font-medium">Est. Transit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {legs.map((leg, i) => {
+                            const seaDays = (leg.km / SEA_KM_PER_DAY).toFixed(1);
+                            const airHrs  = Math.round(leg.km / 850);
+                            return (
+                              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                <td className="px-3 py-2 text-gray-400 font-mono">{i + 1}</td>
+                                <td className="px-3 py-2 font-medium text-gray-800">{leg.from.name}</td>
+                                <td className="px-3 py-2 text-gray-700 flex items-center gap-1">
+                                  <span className="text-green-500">→</span> {leg.to.name}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-gray-700">
+                                  ~{leg.km.toLocaleString()} km
+                                </td>
+                                <td className="px-3 py-2 text-right text-gray-600">
+                                  <span className="text-blue-700 font-medium">{seaDays}d</span>
+                                  <span className="text-gray-400 mx-1">/</span>
+                                  <span className="text-purple-700 font-medium">{airHrs}h</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-green-50 font-semibold">
+                            <td className="px-3 py-2 text-gray-400" />
+                            <td className="px-3 py-2 text-gray-700 text-[10px] uppercase tracking-wide" colSpan={2}>Total rerouted path</td>
+                            <td className="px-3 py-2 text-right text-green-700">
+                              ~{totalRerouteKm.toLocaleString()} km
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs">
+                              <span className="text-blue-700">{(totalRerouteKm / SEA_KM_PER_DAY).toFixed(0)}d sea</span>
+                              <span className="text-gray-400 mx-1">/</span>
+                              <span className="text-purple-700">{Math.round(totalRerouteKm / 850)}h air</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 px-1">
+                      Transit estimates: sea ~520 km/day (20-kt container ship) · air ~850 km/h
+                    </p>
+                  </section>
+                )}
+
+                {/* ── 4. Cost Impact ──────────────────────────────── */}
+                <section>
+                  <h3 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5">
+                    <span>💰</span> Cost & Delay Impact
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                      <p className="text-[10px] text-orange-700 font-semibold uppercase tracking-wide mb-1">Extra Fuel Cost</p>
+                      <p className="text-xl font-bold text-orange-700">+${fuelExtra.toLocaleString()}</p>
+                      <p className="text-[10px] text-orange-600 mt-0.5">
+                        {rerouteInfo.extraKm.toLocaleString()} km × $0.15/km
+                      </p>
+                    </div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3">
+                      <p className="text-[10px] text-yellow-700 font-semibold uppercase tracking-wide mb-1">Handling Fees</p>
+                      <p className="text-xl font-bold text-yellow-700">+${handlingFees.toLocaleString()}</p>
+                      <p className="text-[10px] text-yellow-600 mt-0.5">
+                        {extraHubs} extra hub{extraHubs !== 1 ? 's' : ''} × $450 transshipment
+                      </p>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                      <p className="text-[10px] text-red-700 font-semibold uppercase tracking-wide mb-1">Total Additional Cost</p>
+                      <p className="text-xl font-bold text-red-700">+${totalExtra.toLocaleString()}</p>
+                      <p className="text-[10px] text-red-600 mt-0.5">Fuel + handling combined</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                      <p className="text-[10px] text-blue-700 font-semibold uppercase tracking-wide mb-1">Estimated Delay</p>
+                      <p className="text-xl font-bold text-blue-700">+{delayDays} days</p>
+                      <p className="text-[10px] text-blue-600 mt-0.5">Sea freight baseline</p>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-0.5">Carbon Footprint Added</p>
+                      <p className="text-sm font-bold text-gray-700">+{extraCo2.toLocaleString()} kg CO₂</p>
+                    </div>
+                    <span className="text-2xl">🌿</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1.5 px-1">
+                    * Cost model: sea freight $0.15/km (20-ft TEU equivalent), $450/hub transshipment fee.
+                    CO₂: 0.20 kg/km (20-tonne cargo, sea). Figures are indicative estimates based on industry averages.
+                  </p>
+                </section>
+
+                {/* ── 5. Alternatives Considered ──────────────────── */}
+                {rerouteInfo.alternatives && rerouteInfo.alternatives.length > 0 && (
+                  <section>
+                    <h3 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1.5">
+                      <span>🔀</span> Other Routes Evaluated
+                    </h3>
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 text-gray-500 uppercase text-[10px]">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium">Gateway Hub</th>
+                            <th className="px-3 py-2 text-right font-medium">Composite Score</th>
+                            <th className="px-3 py-2 text-right font-medium">vs Selected</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {rerouteInfo.alternatives.map((alt, i) => {
+                            const selectedScore = rerouteInfo.alternatives![0].score;
+                            const diff = alt.score - selectedScore;
+                            return (
+                              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                                <td className="px-3 py-2 font-medium text-gray-800">{alt.gateway}</td>
+                                <td className="px-3 py-2 text-right font-mono text-gray-600">
+                                  {alt.score.toLocaleString()}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                    diff > 0
+                                      ? 'bg-red-100 text-red-700'
+                                      : 'bg-green-100 text-green-700'
+                                  }`}>
+                                    {diff > 0 ? '+' : ''}{diff.toLocaleString()}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1 px-1">
+                      Score = weighted composite of distance, disruption overlap, hub penalty, and transit time. Lower is better.
+                    </p>
+                  </section>
+                )}
+
+                {/* ── Footer ──────────────────────────────────────── */}
+                <div className="border-t border-gray-200 pt-4 flex items-center justify-between">
+                  <p className="text-[10px] text-gray-400">
+                    Generated by Dijkstra DSS · LogiShop Thesis
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowRerouteDetail(false)}
+                    className="bg-gray-900 hover:bg-gray-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()
+    )}
+    </>
   );
 }

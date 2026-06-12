@@ -50,7 +50,17 @@ export default function HomePage() {
         return;
       }
 
-      const response = await ordersAPI.getAll();
+      let response;
+      try {
+        response = await ordersAPI.getAll();
+      } catch (err: any) {
+        // Unauthenticated or forbidden — silently skip stats
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          setLoading(false);
+          return;
+        }
+        throw err;
+      }
       const raw = response.data;
       const orders: Record<string, unknown>[] = Array.isArray(raw) ? raw : [];
 
@@ -137,7 +147,6 @@ export default function HomePage() {
 
   const fetchRoutes = async () => {
     try {
-      console.log('📦 Fetching order routes from API...');
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       if (!token) {
         // Not logged in — show nothing
@@ -147,13 +156,20 @@ export default function HomePage() {
       const response = await fetch('/api/routes', {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      // Token rejected — clear it and silently skip routes
+      if (response.status === 401 || response.status === 403) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+        return;
+      }
+
       const result = await response.json();
       
       if (result.success && result.data) {
-        console.log(`✅ Loaded ${result.data.length} routes`);
         setRoutes(result.data);
-      } else {
-        console.error('❌ Failed to fetch routes:', result.error);
       }
     } catch (error) {
       console.error('❌ Error fetching routes:', error);

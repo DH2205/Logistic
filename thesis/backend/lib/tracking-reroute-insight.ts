@@ -7,6 +7,7 @@ import {
   findReroute,
   regionToBbox,
   thesisStrategicCorridorBlocked,
+  type DisruptionType,
   type DisruptionZoneInput,
 } from './disruption-router';
 import { geocodeLocation } from './geocoding';
@@ -17,6 +18,8 @@ export type StoredLogisticsDisruption = {
   region: string;
   active: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
+  type?: DisruptionType;
+  description?: string;
   bbox?: { north: number; south: number; east: number; west: number };
 };
 
@@ -51,7 +54,14 @@ export function storedDisruptionsToZones(
     .map((d) => {
       const bbox = d.bbox ?? regionToBbox(d.region) ?? regionToBbox(d.name) ?? null;
       if (!bbox) return null;
-      return { id: d.id, name: d.name, bbox, severity: d.severity };
+      return {
+        id: d.id,
+        name: d.name,
+        bbox,
+        severity: d.severity,
+        ...(d.type ? { type: d.type } : {}),
+        ...(d.description ? { description: d.description } : {}),
+      };
     })
     .filter((z): z is DisruptionZoneInput => z !== null);
 }
