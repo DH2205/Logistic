@@ -17,10 +17,10 @@ export default function LoginPage() {
     document.title = 'LogiShop: Sign In';
   }, []);
 
-  // Already logged in → go straight to orders
+  // Already logged in -> go straight to home
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace('/orders');
+      router.replace('/');
     }
   }, [user, authLoading, router]);
 
@@ -33,7 +33,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result.success) {
-      router.push('/orders');
+      router.push('/');
     } else {
       const rawError = result.error || 'Login failed';
       if (rawError.toLowerCase().includes('invalid credentials')) {
