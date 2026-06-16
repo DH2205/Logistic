@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { productsAPI, ordersAPI } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { ordersAPI } from '@/lib/api';
 import { coerceDeliveryStatusForDisplay } from '@/lib/delivery-status';
 import TransportationMap from '@/components/maps/TransportationMap';
 
@@ -25,6 +27,8 @@ interface Stats {
 }
 
 export default function HomePage() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState<Stats>({
     active: 0,
     inTransit: 0,
@@ -37,11 +41,17 @@ export default function HomePage() {
   const [routes, setRoutes] = useState<OrderRoute[]>([]);
   const [routesLoading, setRoutesLoading] = useState(true);
 
+  // Redirect unauthenticated visitors to login
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
     document.title = 'LogiShop: Dashboard';
     fetchStats();
     fetchRoutes();
-  }, []);
+  }, [user, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStats = async () => {
     try {
