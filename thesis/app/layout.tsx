@@ -22,7 +22,8 @@ export const metadata: Metadata = {
   },
   description: "International logistics optimization and tracking platform",
   icons: {
-    icon: "/favicon.ico",
+    icon: "/airplane.svg",
+    shortcut: "/airplane.svg",
   },
 };
 
