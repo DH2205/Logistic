@@ -38,6 +38,7 @@ export default function HomePage() {
   const [routesLoading, setRoutesLoading] = useState(true);
 
   useEffect(() => {
+    document.title = 'LogiShop: Dashboard';
     fetchStats();
     fetchRoutes();
   }, []);

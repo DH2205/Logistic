@@ -30,6 +30,7 @@ export default function StaffOrdersPage() {
 
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: Order Queue';
   }, []);
 
   useEffect(() => {

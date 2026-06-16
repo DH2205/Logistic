@@ -8,6 +8,7 @@ export default function LocationsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    document.title = 'LogiShop: Locations';
     fetchLocations();
   }, []);
 

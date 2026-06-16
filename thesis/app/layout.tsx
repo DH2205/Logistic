@@ -16,8 +16,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LogiShop - Logistics Optimization Platform",
+  title: {
+    template: "LogiShop: %s",
+    default: "LogiShop: Logistics Optimization Platform",
+  },
   description: "International logistics optimization and tracking platform",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({

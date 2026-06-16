@@ -22,6 +22,7 @@ export default function OrdersPage() {
   // Fix hydration mismatch - only render after mount
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: My Orders';
   }, []);
 
   useEffect(() => {

@@ -164,7 +164,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   // Fix hydration mismatch
   useEffect(() => {
     setMounted(true);
-  }, []);
+    document.title = `LogiShop: Order ${orderId}`;
+  }, [orderId]);
 
   /** Customers may only refresh tracking from the carrier, not edit fields or route. */
   useEffect(() => {
@@ -403,6 +404,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       console.log('✅ Order details received:', response.data);
       setOrder(response.data);
+      const displayId = response.data.orderID || response.data.orderId || orderId;
+      document.title = `LogiShop: Order ${displayId}`;
       setEditedTrackingNumber(response.data.trackingNumber || '');
       setEditedCarrier(response.data.carrier || 'UPS');
       setEditedFromLocation(

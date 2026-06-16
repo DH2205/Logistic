@@ -13,6 +13,7 @@ export default function ShipmentsPage() {
 
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: Shipments';
   }, []);
 
   useEffect(() => {

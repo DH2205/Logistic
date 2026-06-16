@@ -42,6 +42,7 @@ export default function ExchangeRatesPage() {
 
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: FX Rates';
   }, []);
 
   useEffect(() => {

@@ -74,6 +74,7 @@ export default function CreateOrderPage() {
 
   // Generate Order ID on component mount
   useEffect(() => {
+    document.title = 'LogiShop: Create Shipment';
     generateOrderId();
   }, []);
 

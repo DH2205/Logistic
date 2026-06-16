@@ -123,6 +123,7 @@ export default function AdminStaffControlPage() {
 
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: Admin — Staff Control';
   }, []);
 
   useEffect(() => {

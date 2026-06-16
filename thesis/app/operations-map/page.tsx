@@ -22,6 +22,7 @@ export default function OperationsMapPage() {
 
   useEffect(() => {
     setMounted(true);
+    document.title = 'LogiShop: Operations Map';
   }, []);
 
   useEffect(() => {
