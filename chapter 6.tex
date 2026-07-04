@@ -1,0 +1,22 @@
+\chapter{Conclusion and Future Work}
+\label{ch:conclusion-future-work}
+
+\section{Conclusion}
+
+This thesis presented the design and implementation of LogiShop, a web-based platform for international shipping and delivery management. This project was motivated by a practical industry problem: shipment demand and user data are increasing while a lot of operations still rely on fragmented systems that result in slow updates and inconsistent decision making.
+
+LogiShop was created as an integrated platform that integrates order management, shipment tracking and route visualization into one workflow. From a technical point of view, the system shows that a \textbf{monolithic architecture} can support practical logistics workflows without enterprise-scale infrastructure at the beginning stage. API route handlers, a structured data layer and external carrier synchronization reduce manual workflow and improve consistency.
+
+The transportation map module is one of the most valuable parts of the system. It improves interpretability compared to traditional log-based tracking approaches by allowing users to view shipment routes and statuses geographically. The one-click refresh function also contributes to efficiency, as it combines order and shipment data updates in a single operation.
+
+Another major contribution is the disruption-aware routing framework. Although still being written as a prototype, it provides intelligent decision support by identifying potential route disruptions and recommending alternative routes.
+
+The thesis concludes that LogiShop serves its main goals. The system supports shipment monitoring, enhances workflow productivity and provides a framework for future logistics intelligence solutions. It can also be viewed as a software artifact and an engineering case study.
+
+\subsection{Future Work: Performance and Scalability}
+
+While LogiShop's current monolithic architecture enables operational efficiency and cloud hosting expense savings for Vietnamese SMEs, future scaling will be optimized for the vertical throughput and efficiency of this single unit core. To scale the application and cope with more transactions without moving away from the monolithic architecture, the technical roadmap outlined in the development plan discusses several important optimizations in the current application.
+
+First, to improve data ingestion performance, the local database layer in Supabase will be optimized with an advanced indexing strategy, table partitioning for chronological tracking logs, and database connection pooling. This ensures that the core application instance can handle heavy concurrent read/write operations efficiently during peak hours.
+
+Second, an in-memory caching layer (such as Redis) will be incorporated directly into the monolith to cache frequent external carrier API responses and geospatial routing data. This will dramatically reduce the processing overhead of the route-weighting engine and minimize API latency. By focusing on database indexing, query optimization, and local memory management, the monolithic infrastructure can be horizontally scaled using standard load balancers so LogiShop can easily respond to increasing logistics workloads with high reliability and a minimum of cost. \cite{harpreet2023overcoming} \cite{khedr2024enhancing}.

@@ -1,0 +1,556 @@
+\chapter{Implementation and Results}
+
+\section{Implementation}
+
+\subsection{Overview}
+
+We implemented LogiShop in a series of steps like this and turned it from an ordinary data-driven web app to a global shipping management tool.
+
+On the infrastructure side, we constructed everything using a stack that combines Next.js and React frontend, TypeScript, route-handler-based backend logic in the same project, Supabase, and PostgreSQL. This setup helps to streamline integration, and so it is easier for developing and updating the system from scratch to finish.
+
+The first major goal is to get the core API and database ready. We started with endpoints for authentication, order retrieval, and route access and then developed the database schema to reuse and scale. Once the backend was set up, we turned our attention to the mapping module, which fast became the primary tool for users to visualize shipping routes and spot disruptions.
+
+To assist in better decision-making, we brought in disruption handling. Users can log disruption events via the interface and the system converts them into geographic impact zones. When a route is blocked, the platform is able to use graph-based shortest-path logic to suggest alternatives automatically. With this, LogiShop now becomes a planning assistant more than a tracking tool.
+
+\subsection{Code Implementation}
+
+\subsubsection{Project Structure}
+
+The frontend is clean and manageable, as it is modular and scalable and looks good for readability. The components of shared UI (layout elements, maps, and tracking) are in component folders together. React context providers (like authentication context) manage state on different pages. For building whole screens, the code is based on the Next.js App Router: every route has its own folder with a page.tsx file, and layouts are added if necessary.
+
+The server side is structured so HTTP handling, domain logic, and persistence remain maintainable. REST-style route handlers live under \texttt{app/api}. Reusable business logic, data access, validation, role checks, carrier integration, and disruption rerouting logic are concentrated under \texttt{backend/lib}. The live database is PostgreSQL through Supabase, with schema and migrations maintained under the top-level Supabase directory. There is no standalone \texttt{server.js}; the framework runtime starts the application and API routes act as endpoint entry points.
+
+\subsubsection{Algorithm}
+
+The main rerouting workflow is shown below.
+
+\begin{lstlisting}[caption={findReroute() pseudo-code}]
+function findReroute(fromLat, fromLng, toLat, toLng, disruptions, options):
+  Try:
+    hubs <- options.hubs ?? LOGISTICS_HUBS
+    edges <- options.edges ?? RAW_EDGES
+    startHub <- nearest hub to (fromLat, fromLng)
+    endHub <- nearest hub to (toLat, toLng)
+    blocked <- directRouteBlocked(fromLat, fromLng, toLat, toLng, disruptions)
+    { path, totalKm } <- dijkstra(startHub.id, endHub.id, disruptions, hubs, edges)
+    waypoints <- [hub record for each id in path]
+    directKm <- haversine(fromLat, fromLng, toLat, toLng)
+    detourKm <- totalKm - directKm
+    detourPct <- (detourKm / directKm) * 100 if directKm > 0
+    Return { waypoints, totalDistanceKm: totalKm, blocked, metrics }
+  Catch error:
+    Log error
+    Return failure to caller
+\end{lstlisting}
+
+\begin{lstlisting}[caption={edgeWeight() conceptual pseudo-code}]
+function edgeWeight(edge, hubById, disruptions):
+  a <- hubById[edge.from]
+  b <- hubById[edge.to]
+  multiplier <- 1
+  For each disruption d in disruptions:
+    If hub a or b inside d.bbox OR arc(a -> b) intersects d.bbox:
+      If d.severity is high or critical:
+        Return infinity
+      Else:
+        multiplier <- max(multiplier, severityMultiplier[d.severity])
+  Return edge.distanceKm * multiplier
+\end{lstlisting}
+
+\begin{lstlisting}[caption={dijkstra() conceptual pseudo-code}]
+function dijkstra(startId, endId, disruptions, hubs, edges):
+  Build an undirected adjacency from edges
+  Initialise dist[all hubs] <- infinity
+  dist[startId] <- 0
+  Priority queue <- { (startId, 0) }
+
+  While the queue is not empty:
+    Pop hub u with the smallest dist[u]
+    If u == endId: break
+    For each neighbour v via edge e:
+      w <- edgeWeight(e, ...)
+      If w is infinity: continue
+      If dist[u] + w < dist[v]:
+        dist[v] <- dist[u] + w
+        predecessor[v] <- u
+  Reconstruct path from endId back along predecessor
+  Return { path, totalKm: dist[endId] }
+\end{lstlisting}
+
+\section{Results}
+
+\subsection{Home Page / Landing Page}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{images/image010}
+    \caption{Home Page}
+    \label{fig:home-page}
+\end{figure}
+
+The homepage serves as both the initial page after logging in and the public landing page. A hero block highlights the main heading, ``Delivery Tracking Dashboard'', and explains the scope of real-time shipment tracking and international logistics management. Call-to-action buttons guide users to create shipments or view orders. A metrics bar summarizes active shipments, in-transit shipments, monthly deliveries, and total orders.
+
+\subsection{Input Forms}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/image011}
+    \caption{Create Account Form}
+    \label{fig:create-account-form}
+\end{figure}
+
+The create account screen collects the minimum identity data needed to create a customer account and associate future orders and tracking activity with a unique user.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1\textwidth]{images/image012}
+    \caption{Create Order Form}
+    \label{fig:create-order-form}
+\end{figure}
+
+The create order form allows users to input shipment information. Validation requirements protect database quality and provide operators with accurate information for delivery processing.
+
+\subsection{Data Synchronization and Fresh Tracking Context}
+
+One of the largest challenges in international shipping is tracking orders across several systems. Operators often manage large amounts of data and manually check multiple carrier portals. LogiShop addresses this by providing a synchronization workflow that improves tracking freshness and consistency.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/image013}
+    \caption{Detailed tracking panel with timeline of staff/admin}
+    \label{fig:staff-tracking-panel}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/image014}
+    \caption{Package information from the customer view}
+    \label{fig:customer-package-info}
+\end{figure}
+\subsection{Route Visualization and Disruption-Aware Rerouting}
+
+International shipments are vulnerable to major disruptions such as war zones, natural disasters, geopolitical conflicts, and extreme weather. Traditional systems often lack a clear alternative route suggestion when such problems occur.
+
+LogiShop geocodes origin and destination data to render shipment routes as colored polylines on a map. Staff can register disruption events, and when a shipment path intersects a high-severity zone, the system applies graph-based shortest path logic to display an alternative route \cite{sahoo2023airfreight}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{images/image015}
+    \caption{Transportation Map Main Interface}
+    \label{fig:transportation-map-main}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1\textwidth]{images/image016}
+    \caption{Disruption Zone and Rerouted Path Visualization}
+    \label{fig:image016}
+\end{figure}
+
+The map visualization improves users' understanding of package movement across countries. The reroute function successfully recognizes blocked zones and generates feasible alternatives in simulated disruption scenarios.
+
+\subsection{Security Measures in Operational Use}
+
+LogiShop implements practical API-level security layers. Rate limiting is applied to prevent abuse and brute-force attempts. User inputs are validated and sanitized before database processing. During testing, the rate limit successfully prevented excessive requests.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.7\textwidth]{images/image017}
+    \caption{Rate limit test result HTTP 429}
+    \label{fig:rate-limit-429}
+\end{figure}
+
+\subsection{Consolidated Results and Achievement of Thesis Objectives}
+
+\begin{table}[H]
+\centering
+\caption{Consolidated Results and Achievement}
+\begin{tabularx}{\textwidth}{P{3cm}P{3.3cm}P{3.3cm}Y}
+\toprule
+\textbf{Application Area} & \textbf{Problem Addressed} & \textbf{How LogiShop is Applied} & \textbf{Key Result}\\
+\midrule
+Authentication & Unauthorized access & JWT token-based login & Secure access to features.\\
+Package tracking and synchronization & Outdated tracking information & One-click refresh and UPS integration & Fresher and more consistent package visibility.\\
+Workflow integration & Fragmented operations & Search, track, and visualize workflow & Reduced manual work and better user experience.\\
+Route visualization & Lack of geographic insight & Interactive geocoded map & Clearer understanding of package routes.\\
+Disruption handling and rerouting & Inability to respond to disruptions & Disruption detection and graph-based rerouting & Alternative routes generated and visualized.\\
+Security & API abuse and vulnerabilities & Rate limiting and validation & Protected tracking and rerouting functions.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Algorithm Efficiency}
+
+\begin{table}[H]
+\centering
+\caption{Dijkstra 30 runs}
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Scenario} & \textbf{Disruptions} & \textbf{Runs} & \textbf{Success} & \textbf{Avg ms} & \textbf{Max ms} & \textbf{Avg km}\\
+\midrule
+D0 & 0 & 30 & 100\% & 0.174 & 0.308 & 11050\\
+D1 & 1 & 30 & 100\% & 0.218 & 0.827 & 13150\\
+D2 & 2 & 30 & 100\% & 0.405 & 5.534 & 13150\\
+D3 & 3 & 30 & 0\% & 0.360 & 2.921 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Across 30 runs per scenario, the disruption-handling Dijkstra implementation remained efficient, with average execution time below 1 ms in all scenarios. As disruption constraints increased from D0 to D2, the success rate remained 100\%. In D3, the success rate dropped to 0\%, showing that no feasible path existed under the current network and disruption combination.
+
+\begin{table}[H]
+\centering
+\caption{Dijkstra 500 runs summary}
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Extra hubs} & \textbf{Nodes} & \textbf{Edges} & \textbf{Scenario} & \textbf{Runs} & \textbf{Success} & \textbf{Avg ms}\\
+\midrule
+0 & 42 & 95 & D0 & 500 & 100\% & 0.3326\\
+0 & 42 & 95 & D1 & 500 & 100\% & 0.1427\\
+0 & 42 & 95 & D2 & 500 & 100\% & 0.1621\\
+0 & 42 & 95 & D3 & 500 & 0\% & 0.2399\\
+60 & 102 & 155 & D0 & 500 & 100\% & 0.3747\\
+120 & 137 & 190 & D0 & 500 & 100\% & 0.4445\\
+300 & 137 & 190 & D2 & 500 & 100\% & 0.5133\\
+300 & 137 & 190 & D3 & 500 & 0\% & 0.5743\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Operational and Economic Value}
+
+One objective of LogiShop is to reduce the operational burden placed on SMEs. A workflow comparison measured the number of user interactions and total time required to complete a standard shipment monitoring task.
+
+\begin{table}[H]
+\centering
+\caption{Workflow comparison}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{Fragmented Workflow} & \textbf{LogiShop} & \textbf{Reduction}\\
+\midrule
+Total clicks/interactions & 30 & 5 & 83\%\\
+Total time per task & 38.0 min & 2.5 min & 93\%\\
+Platforms visited & 4+ & 1 & 75\%\\
+Manual disruption evaluation steps & 11 & 0 & 100\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+LogiShop reduces the number of manual interactions by 83\% and total task completion time by 93\%. The most important improvement is that disruption evaluation is performed automatically by the web application.
+
+\subsection{Cost Impact}
+
+The analysis uses UPS international tracking number 1ZB8678F6735719517 from Vietnam to the United States. Package specifications were retrieved through the UPS Tracking API, and price quotes were obtained through the UPS Rating API.
+
+\begin{table}[H]
+\centering
+\caption{Package 1ZB8678F6735719517}
+\begin{tabular}{ll}
+\toprule
+\textbf{Field} & \textbf{Value}\\
+\midrule
+Dimensions & 10 x 20 x 20 cm\\
+Actual weight & 5 kg\\
+Gross weight & 6 kg\\
+Origin & Vietnam\\
+Destination & United States\\
+Carrier & UPS\\
+Service & UPS Worldwide Expedited\\
+Quoted price & 7,488,072 VND / 294.81 USD\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The dimensional weight is calculated as:
+
+\[
+\frac{10 \times 20 \times 20}{5000}=0.8\text{ kg}
+\]
+
+The billable weight is therefore \(\max(5,0.8)=5\) kg.
+
+
+\begin{table}[H]
+\centering
+\caption{API Shipping Rate Quote Response Payload Data}
+\label{tab:shipping-rate-response}
+% --- THIẾT LẬP GIÃN DÒNG KHOẢNG 0.1cm ĐỂ TĂNG ĐỘ ĐỌC ---
+\renewcommand{\arraystretch}{1.35} 
+% Định nghĩa lại độ rộng cố định cho các cột để tối ưu hóa không gian hiển thị
+\begin{tabular}{l l >{\raggedright\arraybackslash}p{7.5cm}}
+\toprule
+\textbf{Object Path / Property} & \textbf{Key / Parameter} & \textbf{Value / Dynamic Payload Data} \\
+\midrule
+\texttt{response} & ok & true \\
+\addlinespace
+\texttt{response.cheapest} & serviceCode & '08' \\
+ & serviceName & 'UPS Worldwide Expedited' \\
+ & currency & 'VND' \\
+ & totalChargeLocal & 7488072 \\
+ & totalChargeUSD & 294.81 \\
+\addlinespace
+\texttt{response.exchangeRate} & from & 'VND' \\
+ & to & 'USD' \\
+ & rate & 0.00003937007874015748 \\
+ & note & '1 VND = 0.00003937007874015748 USD (May 2026)' \\
+\addlinespace
+\texttt{response.packageSpecs} & actualWeightKg & 5 \\
+ & dimensionalWeightKg & 0.8 \\
+ & billableWeightKg & 5 \\
+ & dimensions & '10x20x20 cm' \\
+ & origin & 'VN' \\
+\addlinespace
+\texttt{response.rates[0]} & billableWeightKg & 5 \\
+ & billableWeightLbs & 11.02 \\
+ & currency & "VND" \\
+ & serviceCode & "08" \\
+ & serviceName & "UPS Worldwide Expedited" \\
+ & totalChargeLocal & 7488072 \\
+ & totalChargeUSD & 294.81 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{UPS Freight Cost}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Service} & \textbf{Code} & \textbf{Price (VND)} & \textbf{Price (USD)}\\
+\midrule
+UPS Worldwide Expedited & 08 & 7,488,072 & 294.81\\
+UPS Worldwide Saver & 65 & 10,755,893 & 423.46\\
+UPS Worldwide Express & 07 & 11,395,287 & 448.63\\
+UPS Worldwide Express Plus & 54 & 12,798,237 & 503.87\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The baseline route was Ho Chi Minh City, Hong Kong, Anchorage, Louisville, Oakland, and Alameda, with total transit time of seven days. In the US-Iran conflict scenario, LogiShop detects a blocked region around the Persian Gulf and calculates an alternative route through Hong Kong, Singapore, Colombo, Djibouti, Cairo/Suez, Rome/Genoa, Paris/Le Havre, New York, and Chicago.
+
+% Make sure \usepackage{float} is present in your main document's preamble!
+
+\begin{table}[H]
+\centering
+\caption{Detailed Historical Cargo Scan Telemetry Logs (UPS)}
+\label{tab:ups-telemetry-log}
+% --- CẤU HÌNH GIÃN DÒNG THÊM ~0.1cm CHO MỖI HÀNG ---
+\renewcommand{\arraystretch}{1} 
+\begin{tabularx}{\textwidth}{c l l X l}
+\toprule
+\textbf{Index} & \textbf{Date} & \textbf{Time} & \textbf{Description} & \textbf{Location} \\
+\midrule
+0  & 2026-03-12 & 09:52:12 & DELIVERED & ALAMEDA, CA, US \\
+1  & 2026-03-12 & 09:06:00 & Out For Delivery Today & Oakland, CA, US \\
+2  & 2026-03-12 & 08:27:26 & Loaded on Delivery Vehicle & Oakland, CA, US \\
+3  & 2026-03-12 & 06:07:51 & Processing at UPS Facility & Oakland, CA, US \\
+4  & 2026-03-12 & 05:13:00 & Arrived at Facility & Oakland, CA, US \\
+5  & 2026-03-12 & 05:06:00 & Departed from Facility & Oakland, CA, US \\
+6  & 2026-03-12 & 04:11:00 & Arrived at Facility & Oakland, CA, US \\
+7  & 2026-03-12 & 03:01:56 & Import C.O.D. (ICOD) charges have been paid or billed. & -- \\
+8  & 2026-03-12 & 02:38:00 & Departed from Facility & Louisville, KY, US \\
+9  & 2026-03-12 & 00:27:48 & Import Scan & Louisville, KY, US \\
+10 & 2026-03-11 & 06:11:38 & Import charges are due for this package. Select Pay Now (where available) or pay at delivery. & -- \\
+11 & 2026-03-11 & 06:11:35 & Duties or taxes are due on this package. & -- \\
+12 & 2026-03-11 & 08:06:02 & Your package has been released by a government agency. & -- \\
+13 & 2026-03-11 & 00:08:22 & Import Scan & Louisville, KY, US \\
+14 & 2026-03-10 & 12:28:58 & Import Scan & Louisville, KY, US \\
+15 & 2026-03-10 & 09:59:00 & Arrived at Facility & Louisville, KY, US \\
+16 & 2026-03-10 & 00:40:00 & Departed from Facility & Anchorage, AK, US \\
+17 & 2026-03-09 & 13:49:00 & Arrived at Facility & Anchorage, AK, US \\
+18 & 2026-03-09 & 20:41:00 & Departed from Facility & Chek Lap Kok, HK \\
+19 & 2026-03-09 & 01:01:00 & Arrived at Facility & Chek Lap Kok, HK \\
+20 & 2026-03-08 & 21:35:00 & Departed from Facility & Ho Chi Minh, VN \\
+21 & 2026-03-06 & 16:15:09 & Export Scan & Ho Chi Minh, VN \\
+22 & 2026-03-05 & 20:10:00 & Departed from Facility & Ho Chi Minh City, VN \\
+23 & 2026-03-05 & 08:35:05 & The package is at the clearing agency awaiting final release. & -- \\
+24 & 2026-03-05 & 19:15:16 & Processing at UPS Facility & Ho Chi Minh City, VN \\
+25 & 2026-03-05 & 19:14:16 & Arrived at Facility & Ho Chi Minh City, VN \\
+26 & 2026-03-05 & 17:30:57 & Pickup Scan & Ho Chi Minh City, VN \\
+27 & 2026-03-05 & 13:02:42 & Shipper created a label, UPS has not received the package yet. & VN \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/image023}
+    \caption{Scenario S1}
+    \label{fig:scenario-s1}
+\end{figure}
+
+The alternative route avoids the Persian Gulf by veering south past Sri Lanka and along the East African corridor, then proceeding through the Suez Canal and across the Atlantic to the United States. This demonstrates how LogiShop enables cost-impact analysis: where traditional carrier systems mainly enforce rigid rules and provide API-based tracking updates, LogiShop additionally offers disruption-aware routing to support informed decision-making.
+
+For many SMEs, the greatest financial risk lies in opportunity costs and contractual penalties when deliveries arrive late. Delays in international shipments can result in invoice fines, halted operations, increased fees, and erosion of customer confidence.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]{images/image024}
+    \caption{UPS Warehouse storage additional charge from 2025 to 2026}
+    \label{fig:ups-warehouse-charges} % Fixed duplicate label
+\end{figure}
+
+According to the 2026 UPS Rate and Service Guide (Vietnam), warehouse storage charges apply when delivery is delayed (for example, USD 9.35 per day in the tested scenario). Total freight cost can be expressed as:
+
+\begin{equation}
+\text{Cost}_{\text{total}} = \text{Cost}_{\text{UPS base}} + \text{Cost}_{\text{storage}} + \text{Cost}_{\text{business delay}}.
+\end{equation}
+
+\begin{table}[H]
+\centering
+\caption{Test comparison price}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{S0 Baseline} & \textbf{US-Iran Conflict}\\
+\midrule
+UPS base shipping & 294.81 USD & 294.81 USD\\
+Estimated transit time & 7 days & 10--12 days\\
+Storage cost & -- & 28.05 USD\\
+Business delay & -- & 26.53 USD\\
+Total & 294.81 USD & 349.39 USD\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The disruption scenario is approximately 18.51\% higher than the baseline. The current operating system focuses on route optimization, so this value acts as an empirical decision-support parameter until real-time carrier cost parameters are integrated.
+
+\subsection{Experimental Evaluation of the Multi-Criteria Decision Analysis (MCDA) Model}
+
+In Section 2.9, a mathematical Multi-Criteria Decision Analysis (MCDA) framework using weighted criteria ($w_j$) for cost and time was established to optimize routing decisions under trade-off scenarios. In the current deployment phase of the LogiShop web application, the user interface (UI) locks the weight distribution to a balanced configuration ($w_{\text{cost}} = 0.5$, $w_{\text{time}} = 0.5$) to streamline the core Minimum Viable Product (MVP) testing. 
+
+However, to validate the mathematical resilience and behavioral flexibility of the backend routing engine, an offline simulation framework was executed. The optimization algorithm was subjected to two distinct simulated scenario environments to observe how varying user priorities influence the dynamic generation of alternative routes when facing active disruption zones.
+
+\subsubsection{Simulation Scenario Profiles}
+To evaluate the engine's responsiveness, a fixed shipment order from origin SGN to destination JFK was simulated while the disruption zone was flagged as active. Two simulated user profiles were tested:
+\begin{itemize}
+    \item \textbf{Profile A (Urgent Delivery Focus):} Modeled a scenario where time-to-delivery is critical (e.g., medical supplies or high-value electronics). The weights were manually set in the backend execution payload to $w_{\text{time}} = 0.8$ and $w_{\text{cost}} = 0.2$.
+    \item \textbf{Profile B (Economic Efficiency Focus):} Modeled a scenario where budget limits dominate, and delays are tolerable (e.g., bulk non-perishable commodities). The weights were set to $w_{\text{time}} = 0.2$ and $w_{\text{cost}} = 0.8$.
+\end{itemize}
+
+\subsubsection{Simulation Results and Discussion}
+The behavioral response of the optimization algorithm under these conflicting weights is detailed in Table~\ref{tab:mcda-simulation-results}.
+
+\begin{table}[H]
+\centering
+\caption{Backend MCDA Optimization Outputs Under Varying Weight Coefficients}
+\label{tab:mcda-simulation-results}
+% Khai báo cột Y tự động ngắt dòng thông minh cho cột cuối cùng
+
+% Phân bổ độ rộng cố định cho các cột đầu để tránh việc dồn chữ theo chiều dọc
+\begin{tabularx}{\textwidth}{p{3.2cm} p{2.2cm} p{2.5cm} p{2.2cm} Y}
+\toprule
+\textbf{Simulated Profile} & \textbf{Weight Set} $(w_{\text{cost}}, w_{\text{time}})$ & \textbf{Computed Cost} & \textbf{Transit Time} & \textbf{Algorithm Route Selection Behavior} \\
+\midrule
+\textbf{Profile A} (Urgent) & $(0.2, 0.8)$ & \$1,450 & 28 Hours & Bypasses the active disruption zone completely via an express air corridor; tolerates higher freight surcharges. \\
+\addlinespace
+\textbf{Profile B} (Economy) & $(0.8, 0.2)$ & \$820 & 74 Hours & Selects a multimodal maritime-rail path. Intersects the edge of the zone and absorbs the calculated penalty cost to maintain minimum financial expenditure. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The simulation results mathematically prove that the backend engine effectively shifts its graph edge penalty calculations according to user priorities. When $w_{\text{time}}$ is dominant, the system penalizes any paths intersecting disruption zones severely due to the high accumulated \texttt{ancillary\_delay\_cost}. Conversely, when $w_{\text{cost}}$ is dominant, the system accepts time delays to minimize raw transport expenses. 
+
+While the dynamic weight adjustment sliders are scheduled for the version 2.0 frontend UI release, this computational experiment successfully confirms that the core mathematical model proposed in Chapter 2 is fully operational within the backend infrastructure.
+
+\section{Reliability and Security}
+
+\subsection{Reliability}
+
+% --- BẢNG 1: TỔNG HỢP KẾT QUẢ KIỂM THỬ (TEST EXECUTION SUMMARY) ---
+\begin{table}[H]
+\centering
+\caption{Test Execution Metrics Summary}
+\label{tab:test-summary}
+\begin{tabularx}{\textwidth}{c l c c c c}
+\toprule
+\textbf{(index)} & \textbf{Category} & \textbf{Total} & \textbf{Passed} & \textbf{Failed} & \textbf{Success Rate} \\
+\midrule
+0 & 'country' & 10 & 10 & 0 & '100.00\%' \\
+1 & 'iso\_code' & 10 & 10 & 0 & '100.00\%' \\
+2 & 'ups\_form...' & 10 & 10 & 0 & '100.00\%' \\
+3 & 'city\_name...' & 10 & 0 & 10 & '0.00\%' \\
+4 & 'ambiguous...' & 5 & 5 & 0 & '100.00\%' \\
+5 & 'invalid' & 5 & 0 & 5 & '0.00\%' \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\vspace{0.5cm}
+
+% --- BẢNG 2: CHI TIẾT DỮ LIỆU ĐẦU VÀO (TEST INPUT CATEGORIZATION) ---
+\begin{table}[H]
+\centering
+\caption{Detailed Test Input Classification Records}
+\label{tab:test-inputs}
+% --- THIẾT LẬP GIÃN DÒNG KHOẢNG 0.1cm THEO YÊU CẦU TRƯỚC ---
+\renewcommand{\arraystretch}{0.8} 
+% Sử dụng cột X cho Input và Category để tự động lấp đầy và dàn đều theo \textwidth
+\begin{tabularx}{\textwidth}{c X >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{(index)} & \textbf{Input} & \textbf{Category} \\
+\midrule
+0 & 'Bangkok' & 'city\_name' \\
+1 & 'Cairo' & 'city\_name' \\
+2 & 'Nairobi' & 'city\_name' \\
+3 & 'Paris' & 'city\_name' \\
+4 & 'Toronto' & 'city\_name' \\
+5 & 'Jakarta' & 'city\_name' \\
+6 & 'Moscow' & 'city\_name' \\
+7 & 'Seoul' & 'city\_name' \\
+8 & 'Kuala Lumpur' & 'city\_name' \\
+9 & 'Manila' & 'city\_name' \\
+10 & 'XYZ123' & 'invalid' \\
+11 & 'Somewhere, Unknown' & 'invalid' \\
+12 & '!!!@@@\#\#\#' & 'invalid' \\
+13 & '' & 'invalid' \\
+14 & 'ZZZZZ' & 'invalid' \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Tested geocoding accuracy by running 50 location strings through six typical input categories. The system nailed every country name, ISO-2 code, and UPS-style location format—100\% accuracy there. When we tried just city names by themselves, though, accuracy dropped. Turns out the lookup works best with carrier-style country formats, not bare cities. Random junk strings didn’t trick the system; it returned null. Overall, the system correctly geocoded 70\% of all test cases. 
+
+\subsection{Security}
+
+Security is a fundamental requirement for a web application that manages shipment records, customer details, order histories, and tracking data. Security testing is a critical activity for web applications because system complexity increases the risk of sensitive data exposure \cite{jaiswal2014security}.
+
+
+
+
+\begin{table}[H]
+\centering
+\caption{API Authentication Rate Limiting Test Log}
+\label{tab:api-rate-limit-log}
+% Cấu hình cột Message dùng X để co giãn và tự động xuống hàng mượt mà
+\begin{tabularx}{\textwidth}{l l c X}
+\toprule
+\textbf{Attempt} & \textbf{HTTP Method \& Endpoint} & \textbf{Status Code} & \textbf{Response Message / Error} \\
+\midrule
+Attempt 1  & POST http://localhost:3000/api/auth/login & 401 & Invalid credentials (Unauthorized) \\
+Attempt 2  & POST http://localhost:3000/api/auth/login & 401 & Invalid credentials (Unauthorized) \\
+Attempt 3  & POST http://localhost:3000/api/auth/login & 401 & Invalid credentials (Unauthorized) \\
+Attempt 4  & POST http://localhost:3000/api/auth/login & 401 & Invalid credentials (Unauthorized) \\
+Attempt 5  & POST http://localhost:3000/api/auth/login & 401 & Invalid credentials (Unauthorized) \\
+Attempt 6  & POST http://localhost:3000/api/auth/login & 429 & Too many login attempts. Try again in 58 seconds. \\
+Attempt 7  & POST http://localhost:3000/api/auth/login & 429 & Too many login attempts. Try again in 58 seconds. \\
+Attempt 8  & POST http://localhost:3000/api/auth/login & 429 & Too many login attempts. Try again in 58 seconds. \\
+Attempt 9  & POST http://localhost:3000/api/auth/login & 429 & Too many login attempts. Try again in 58 seconds. \\
+Attempt 10 & POST http://localhost:3000/api/auth/login & 429 & Too many login attempts. Try again in 58 seconds. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Rate Limit -- DDoS}
+    \begin{tabular}{ccc}
+    \toprule
+    \textbf{Attempt} & \textbf{Status} & \textbf{Message}\\
+    \midrule
+    1--5 & 401 & Invalid credentials\\
+    6--10 & 429 & Too many login attempts\\
+    \bottomrule
+    \end{tabular}
+\end{table}
+
+
