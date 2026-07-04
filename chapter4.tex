@@ -4,19 +4,19 @@
 
 \subsection{Overview}
 
-We implemented LogiShop in a series of steps like this and turned it from an ordinary data-driven web app to a global shipping management tool.
+We built LogiShop in stages, developing it from a basic data-driven web application into a shipping management tool.
 
-On the infrastructure side, we constructed everything using a stack that combines Next.js and React frontend, TypeScript, route-handler-based backend logic in the same project, Supabase, and PostgreSQL. This setup helps to streamline integration, and so it is easier for developing and updating the system from scratch to finish.
+The stack combines a Next.js and React frontend, TypeScript, route-handler backend logic in the same project, Supabase, and PostgreSQL. Keeping the frontend and backend in one project made the system easier to develop and maintain.
 
-The first major goal is to get the core API and database ready. We started with endpoints for authentication, order retrieval, and route access and then developed the database schema to reuse and scale. Once the backend was set up, we turned our attention to the mapping module, which fast became the primary tool for users to visualize shipping routes and spot disruptions.
+The first goal was to build the core API and database. We began with endpoints for authentication, order retrieval, and route access, then designed the database schema. Once the backend was in place, we built the mapping module, which became the main way for users to view shipping routes and identify disruptions.
 
-To assist in better decision-making, we brought in disruption handling. Users can log disruption events via the interface and the system converts them into geographic impact zones. When a route is blocked, the platform is able to use graph-based shortest-path logic to suggest alternatives automatically. With this, LogiShop now becomes a planning assistant more than a tracking tool.
+We then added disruption handling. Users log disruption events through the interface, and the system converts them into geographic impact zones. When a route is blocked, the platform uses graph-based shortest-path logic to suggest alternatives automatically. This makes LogiShop a planning tool rather than only a tracking tool.
 
 \subsection{Code Implementation}
 
 \subsubsection{Project Structure}
 
-The frontend is clean and manageable, as it is modular and scalable and looks good for readability. The components of shared UI (layout elements, maps, and tracking) are in component folders together. React context providers (like authentication context) manage state on different pages. For building whole screens, the code is based on the Next.js App Router: every route has its own folder with a page.tsx file, and layouts are added if necessary.
+The frontend is organized into modules for readability. Shared UI components (layout elements, maps, and tracking) are grouped together in component folders. React context providers, such as the authentication context, manage state across pages. Screens follow the Next.js App Router: every route has its own folder with a page.tsx file, and layouts are added where needed.
 
 The server side is structured so HTTP handling, domain logic, and persistence remain maintainable. REST-style route handlers live under \texttt{app/api}. Reusable business logic, data access, validation, role checks, carrier integration, and disruption rerouting logic are concentrated under \texttt{backend/lib}. The live database is PostgreSQL through Supabase, with schema and migrations maintained under the top-level Supabase directory. There is no standalone \texttt{server.js}; the framework runtime starts the application and API routes act as endpoint entry points.
 
@@ -88,7 +88,7 @@ function dijkstra(startId, endId, disruptions, hubs, edges):
     \label{fig:home-page}
 \end{figure}
 
-The homepage serves as both the initial page after logging in and the public landing page. A hero block highlights the main heading, ``Delivery Tracking Dashboard'', and explains the scope of real-time shipment tracking and international logistics management. Call-to-action buttons guide users to create shipments or view orders. A metrics bar summarizes active shipments, in-transit shipments, monthly deliveries, and total orders.
+The homepage is both the first page after login and the public landing page. A hero block highlights the main heading, ``Delivery Tracking Dashboard'', and explains the scope of real-time shipment tracking and international logistics management. Call-to-action buttons guide users to create shipments or view orders. A metrics bar summarizes active shipments, in-transit shipments, monthly deliveries, and total orders.
 
 \subsection{Input Forms}
 
@@ -108,11 +108,11 @@ The create account screen collects the minimum identity data needed to create a 
     \label{fig:create-order-form}
 \end{figure}
 
-The create order form allows users to input shipment information. Validation requirements protect database quality and provide operators with accurate information for delivery processing.
+The create order form lets users enter shipment information. Validation rules keep the stored data consistent and give operators accurate information for delivery processing.
 
 \subsection{Data Synchronization and Fresh Tracking Context}
 
-One of the largest challenges in international shipping is tracking orders across several systems. Operators often manage large amounts of data and manually check multiple carrier portals. LogiShop addresses this by providing a synchronization workflow that improves tracking freshness and consistency.
+One of the main challenges in international shipping is tracking orders across several systems. Operators handle large amounts of data and often check multiple carrier portals by hand. LogiShop addresses this with a synchronization workflow that keeps tracking data fresher and more consistent.
 
 \begin{figure}[htbp]
     \centering
@@ -129,7 +129,7 @@ One of the largest challenges in international shipping is tracking orders acros
 \end{figure}
 \subsection{Route Visualization and Disruption-Aware Rerouting}
 
-International shipments are vulnerable to major disruptions such as war zones, natural disasters, geopolitical conflicts, and extreme weather. Traditional systems often lack a clear alternative route suggestion when such problems occur.
+International shipments are exposed to disruptions such as war zones, natural disasters, and extreme weather. Most tracking systems do not suggest an alternative route when these problems occur.
 
 LogiShop geocodes origin and destination data to render shipment routes as colored polylines on a map. Staff can register disruption events, and when a shipment path intersects a high-severity zone, the system applies graph-based shortest path logic to display an alternative route \cite{sahoo2023airfreight}.
 
@@ -147,11 +147,11 @@ LogiShop geocodes origin and destination data to render shipment routes as color
     \label{fig:image016}
 \end{figure}
 
-The map visualization improves users' understanding of package movement across countries. The reroute function successfully recognizes blocked zones and generates feasible alternatives in simulated disruption scenarios.
+The map helps users see how packages move between countries. In simulated disruption scenarios, the reroute function identified blocked zones and generated feasible alternatives.
 
 \subsection{Security Measures in Operational Use}
 
-LogiShop implements practical API-level security layers. Rate limiting is applied to prevent abuse and brute-force attempts. User inputs are validated and sanitized before database processing. During testing, the rate limit successfully prevented excessive requests.
+LogiShop applies security controls at the API level. Rate limiting guards against abuse and brute-force attempts, and user input is validated and sanitized before it reaches the database. During testing, the rate limit blocked excessive requests.
 
 \begin{figure}[htbp]
     \centering
@@ -219,7 +219,7 @@ Across 30 runs per scenario, the disruption-handling Dijkstra implementation rem
 
 \section{Operational and Economic Value}
 
-One objective of LogiShop is to reduce the operational burden placed on SMEs. A workflow comparison measured the number of user interactions and total time required to complete a standard shipment monitoring task.
+One objective of LogiShop is to reduce the operational workload on SMEs. To measure this, we compared the number of user interactions and the total time needed to complete a standard shipment monitoring task.
 
 \begin{table}[H]
 \centering
@@ -236,7 +236,7 @@ Manual disruption evaluation steps & 11 & 0 & 100\%\\
 \end{tabular}
 \end{table}
 
-LogiShop reduces the number of manual interactions by 83\% and total task completion time by 93\%. The most important improvement is that disruption evaluation is performed automatically by the web application.
+LogiShop reduces manual interactions by 83\% and task completion time by 93\%. It also performs disruption evaluation automatically, which previously required manual steps.
 
 \subsection{Cost Impact}
 
@@ -379,9 +379,9 @@ The baseline route was Ho Chi Minh City, Hong Kong, Anchorage, Louisville, Oakla
     \label{fig:scenario-s1}
 \end{figure}
 
-The alternative route avoids the Persian Gulf by veering south past Sri Lanka and along the East African corridor, then proceeding through the Suez Canal and across the Atlantic to the United States. This demonstrates how LogiShop enables cost-impact analysis: where traditional carrier systems mainly enforce rigid rules and provide API-based tracking updates, LogiShop additionally offers disruption-aware routing to support informed decision-making.
+The alternative route avoids the Persian Gulf by turning south past Sri Lanka and along the East African corridor, then passing through the Suez Canal and across the Atlantic to the United States. This shows how LogiShop supports cost-impact analysis. Carrier systems mainly enforce fixed rules and provide API-based tracking updates, while LogiShop also offers disruption-aware routing to help users make decisions.
 
-For many SMEs, the greatest financial risk lies in opportunity costs and contractual penalties when deliveries arrive late. Delays in international shipments can result in invoice fines, halted operations, increased fees, and erosion of customer confidence.
+For many SMEs, the largest financial risk comes from opportunity costs and contractual penalties when deliveries arrive late. Delays can lead to invoice fines, halted operations, extra fees, and loss of customer confidence.
 
 \begin{figure}[H]
     \centering
@@ -412,23 +412,23 @@ Total & 294.81 USD & 349.39 USD\\
 \end{tabular}
 \end{table}
 
-The disruption scenario is approximately 18.51\% higher than the baseline. The current operating system focuses on route optimization, so this value acts as an empirical decision-support parameter until real-time carrier cost parameters are integrated.
+The disruption scenario costs about 18.51\% more than the baseline. The current system focuses on route optimization, so this figure serves as a decision-support estimate until real-time carrier cost data is integrated.
 
 \subsection{Experimental Evaluation of the Multi-Criteria Decision Analysis (MCDA) Model}
 
-In Section 2.9, a mathematical Multi-Criteria Decision Analysis (MCDA) framework using weighted criteria ($w_j$) for cost and time was established to optimize routing decisions under trade-off scenarios. In the current deployment phase of the LogiShop web application, the user interface (UI) locks the weight distribution to a balanced configuration ($w_{\text{cost}} = 0.5$, $w_{\text{time}} = 0.5$) to streamline the core Minimum Viable Product (MVP) testing. 
+Section 2.9 defined a Multi-Criteria Decision Analysis (MCDA) framework that uses weighted criteria ($w_j$) for cost and time to make routing decisions under trade-offs. In the current release, the user interface fixes the weights at a balanced setting ($w_{\text{cost}} = 0.5$, $w_{\text{time}} = 0.5$) to keep the initial MVP testing simple.
 
-However, to validate the mathematical resilience and behavioral flexibility of the backend routing engine, an offline simulation framework was executed. The optimization algorithm was subjected to two distinct simulated scenario environments to observe how varying user priorities influence the dynamic generation of alternative routes when facing active disruption zones.
+To test whether the backend routing engine still behaves correctly under different weights, we ran an offline simulation. The optimization algorithm was tested in two scenarios to see how different user priorities affect the alternative routes it generates when a disruption zone is active.
 
 \subsubsection{Simulation Scenario Profiles}
-To evaluate the engine's responsiveness, a fixed shipment order from origin SGN to destination JFK was simulated while the disruption zone was flagged as active. Two simulated user profiles were tested:
+We simulated a fixed shipment order from SGN to JFK with the disruption zone marked active, and tested two user profiles:
 \begin{itemize}
-    \item \textbf{Profile A (Urgent Delivery Focus):} Modeled a scenario where time-to-delivery is critical (e.g., medical supplies or high-value electronics). The weights were manually set in the backend execution payload to $w_{\text{time}} = 0.8$ and $w_{\text{cost}} = 0.2$.
-    \item \textbf{Profile B (Economic Efficiency Focus):} Modeled a scenario where budget limits dominate, and delays are tolerable (e.g., bulk non-perishable commodities). The weights were set to $w_{\text{time}} = 0.2$ and $w_{\text{cost}} = 0.8$.
+    \item \textbf{Profile A (Urgent Delivery Focus):} A scenario where delivery time is critical, such as medical supplies or high-value electronics. The weights were set to $w_{\text{time}} = 0.8$ and $w_{\text{cost}} = 0.2$.
+    \item \textbf{Profile B (Economic Efficiency Focus):} A scenario where budget matters most and delays are acceptable, such as bulk non-perishable goods. The weights were set to $w_{\text{time}} = 0.2$ and $w_{\text{cost}} = 0.8$.
 \end{itemize}
 
 \subsubsection{Simulation Results and Discussion}
-The behavioral response of the optimization algorithm under these conflicting weights is detailed in Table~\ref{tab:mcda-simulation-results}.
+Table~\ref{tab:mcda-simulation-results} shows how the optimization algorithm responded to these weights.
 
 \begin{table}[H]
 \centering
@@ -441,16 +441,16 @@ The behavioral response of the optimization algorithm under these conflicting we
 \toprule
 \textbf{Simulated Profile} & \textbf{Weight Set} $(w_{\text{cost}}, w_{\text{time}})$ & \textbf{Computed Cost} & \textbf{Transit Time} & \textbf{Algorithm Route Selection Behavior} \\
 \midrule
-\textbf{Profile A} (Urgent) & $(0.2, 0.8)$ & \$1,450 & 28 Hours & Bypasses the active disruption zone completely via an express air corridor; tolerates higher freight surcharges. \\
+\textbf{Profile A} (Urgent) & $(0.2, 0.8)$ & \$1,450 & 28 Hours & Avoids the active disruption zone using an express air corridor and accepts higher freight surcharges. \\
 \addlinespace
-\textbf{Profile B} (Economy) & $(0.8, 0.2)$ & \$820 & 74 Hours & Selects a multimodal maritime-rail path. Intersects the edge of the zone and absorbs the calculated penalty cost to maintain minimum financial expenditure. \\
+\textbf{Profile B} (Economy) & $(0.8, 0.2)$ & \$820 & 74 Hours & Selects a multimodal sea-and-rail path. It crosses the edge of the zone and absorbs the penalty cost to keep total spending low. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The simulation results mathematically prove that the backend engine effectively shifts its graph edge penalty calculations according to user priorities. When $w_{\text{time}}$ is dominant, the system penalizes any paths intersecting disruption zones severely due to the high accumulated \texttt{ancillary\_delay\_cost}. Conversely, when $w_{\text{cost}}$ is dominant, the system accepts time delays to minimize raw transport expenses. 
+The results show that the backend engine adjusts its graph edge penalties according to user priorities. When $w_{\text{time}}$ dominates, the system heavily penalizes paths that cross disruption zones because of the high accumulated \texttt{ancillary\_delay\_cost}. When $w_{\text{cost}}$ dominates, the system accepts longer transit times to reduce transport costs.
 
-While the dynamic weight adjustment sliders are scheduled for the version 2.0 frontend UI release, this computational experiment successfully confirms that the core mathematical model proposed in Chapter 2 is fully operational within the backend infrastructure.
+The weight-adjustment sliders are planned for the version 2.0 frontend, but this experiment confirms that the mathematical model from Chapter 2 already works in the backend.
 
 \section{Reliability and Security}
 
@@ -508,11 +508,11 @@ While the dynamic weight adjustment sliders are scheduled for the version 2.0 fr
 \end{tabularx}
 \end{table}
 
-Tested geocoding accuracy by running 50 location strings through six typical input categories. The system nailed every country name, ISO-2 code, and UPS-style location format—100\% accuracy there. When we tried just city names by themselves, though, accuracy dropped. Turns out the lookup works best with carrier-style country formats, not bare cities. Random junk strings didn’t trick the system; it returned null. Overall, the system correctly geocoded 70\% of all test cases. 
+We tested geocoding accuracy by running 50 location strings across six input categories. The system correctly resolved every country name, ISO-2 code, and UPS-style location format, reaching 100\% accuracy in those categories. Accuracy dropped for bare city names, which shows that the lookup depends on carrier-style country formats rather than city names alone. Invalid strings were rejected and returned null. Overall, the system correctly geocoded 70\% of the test cases.
 
 \subsection{Security}
 
-Security is a fundamental requirement for a web application that manages shipment records, customer details, order histories, and tracking data. Security testing is a critical activity for web applications because system complexity increases the risk of sensitive data exposure \cite{jaiswal2014security}.
+Security is a core requirement for a web application that manages shipment records, customer details, order histories, and tracking data. Security testing matters because added complexity increases the risk of exposing sensitive data \cite{jaiswal2014security}.
 
 
 

@@ -3,15 +3,15 @@
 
 \section{Experimental Setup and Evaluation Methodology}
 
-In order to evaluate the performance, architectural resilience, and user-centricity of the developed LogiShop platform, a structured empirical study was conducted in this chapter. The main objective of this chapter is to assess how well the system fills the research gaps uncovered in Chapter 2, especially in terms of geopolitical and structural route disruptions, multi-carrier data normalization, and cost-impact computing.
+To evaluate the performance, resilience, and usability of the LogiShop platform, this chapter presents a structured empirical study. The aim is to assess how well the system addresses the research gaps identified in Chapter 2, particularly geopolitical and structural route disruptions, multi-carrier data normalization, and cost-impact calculation.
 
-The evaluation process has been based on quantitative performance benchmarks and qualitative feature tests. Quantitatively, route calculation and API synchronization data pipelines were tested using simulated request loads to test response times as well as system resource overhead. Qualitatively, features were compared against older industry models. A set of operational parameters, contract base pricing figures, and delivery route vectors were obtained from anonymized telemetry data provided by VN Express International Delivery Company Limited (VNEXID) to bridge the gap between theoretical algorithm implementation and commercial constraint analysis.
+The evaluation combines quantitative performance benchmarks with qualitative feature tests. For the quantitative part, the route calculation and API synchronization pipelines were tested under simulated request loads to measure response times and resource overhead. For the qualitative part, features were compared against older industry tools. Operational parameters, base contract prices, and delivery route data were drawn from anonymized telemetry provided by VN Express International Delivery Company Limited (VNEXID), which connected the algorithm implementation to real commercial constraints.
 
 \section{Feature Evaluation and Comparative Analysis}
 
-A core contribution of this thesis is resolving the functional fragmentation inherent in small and medium-sized enterprise (SME) logistics setups. Figure \ref{fig:ups-landing} and Figure \ref{fig:ups-tracking-api} demonstrated how isolated proprietary tools handle basic tracking, but they show clear weaknesses when evaluating multi-carrier alternatives or complex spatial risk profiles. 
+One contribution of this thesis is addressing the functional fragmentation in small and medium-sized enterprise (SME) logistics. Figure \ref{fig:ups-landing} and Figure \ref{fig:ups-tracking-api} show how isolated proprietary tools handle basic tracking but struggle when comparing multi-carrier alternatives or assessing spatial risk.
 
-To systematically position LogiShop within the current logistics software landscape, its core components were benchmarked against \textbf{UPS.com} (representing primary carrier-specific ecosystems) and legacy \textbf{Enterprise Logistics Management Systems (LMS)} typically deployed by large-scale freight aggregators.
+To position LogiShop against current logistics software, its core components were compared with \textbf{UPS.com} (a carrier-specific system) and legacy \textbf{Enterprise Logistics Management Systems (LMS)} used by large freight aggregators.
 
 \begin{table}[H]
 \centering
@@ -49,34 +49,34 @@ High \newline \small (Free basic tracking portal) &
 \end{tabularx}
 \end{table}
 
-As synthesized in Table \ref{tab:feature-comparison-short}, While proprietary carrier ecosystems like UPS.com provide high tracking reliability within their internal parameters, they are data silos. They do not provide horizontal visibility when an enterprise is orchestrating cargo movements among scattered multi-carrier networks. Enterprise-grade Legacy LMS frameworks with LogiShop-level multi-carrier data ingestion capabilities are not ideal for the enterprise as they have high operational friction and require expensive Electronic Data Interchange (EDI) modules and manual configuration changes to reroute paths during sudden flight anomalies.
+As Table \ref{tab:feature-comparison-short} shows, carrier systems like UPS.com are reliable for tracking within their own network, but they act as data silos. They give no visibility across carriers when a company moves cargo through several networks at once. Legacy LMS platforms can ingest multi-carrier data, but they carry high operational friction: they need expensive Electronic Data Interchange (EDI) modules and manual configuration changes to reroute paths when a flight is disrupted.
 
-LogiShop can close this operational gap by offering a cheap, easy-to-navigate and easy-to-use solution for Vietnamese SMEs. By eliminating deterministic pathfinding and introducing a modern web platform that synchronizes API synchronization and automatically applies spatial risk penalties, we are able to demonstrate that small-scale logistics companies can achieve more elastic supply chain solutions without spending a lot on software development.
+LogiShop closes this gap with a low-cost, easy-to-use option for Vietnamese SMEs. By replacing rigid single-route pathfinding with a web platform that synchronizes carrier data and applies spatial risk penalties automatically, we show that small logistics companies can build more flexible supply chains without large software budgets.
 
 \section{Algorithmic Evaluation and Disruption Handling}
 
-The core mathematical engine behind LogiShop's resilience is the dynamic graph-reweighting framework formalized in Algorithm \ref{alg:disruption-weighting}. To validate its efficiency, the system was subjected to a simulated geopolitical crisis scenario mirroring trans-Eurasian airspace closures. A standard test route from Tan Son Nhat International Airport (SGN) to John F. Kennedy International Airport (JFK) was mapped onto the graph network $G=(V,E)$.
+The engine behind LogiShop's resilience is the dynamic graph-reweighting method defined in Algorithm \ref{alg:disruption-weighting}. To test it, we ran a simulated geopolitical crisis based on trans-Eurasian airspace closures. A test route from Tan Son Nhat International Airport (SGN) to John F. Kennedy International Airport (JFK) was mapped onto the graph $G=(V,E)$.
 
-Rather than failing or producing a breaking exception, the LogiShop DSS re-traversed the active graph. It automatically discarded the compromised northern edges and generated a southern bypass trajectory via Singapore (SIN) and Dubai (DXB). It proactively bypassed the high-risk zone.
+Instead of failing or throwing an exception, the system re-traversed the graph. It discarded the blocked northern edges and produced a southern bypass through Singapore (SIN) and Dubai (DXB), avoiding the high-risk zone.
 
 \subsection{Disruption Cost-Impact Reconciliation}
 
-To maintain rigorous accounting consistency across operational routing tiers, a clear distinction must be established between localized edge-weight penalties and macro-level contractual penalties. The value of \$26.53 USD computed dynamically in Table 4.7 represents the isolated, operational overhead variance ($C_{\text{operational\_overhead}}$) incurred by the transit asset while maneuvering through the active US-Iran disruption corridor. 
+To keep the cost accounting consistent, we separate local edge-weight penalties from contract-level penalties. The \$26.53 USD computed in Table 4.7 is the operational overhead ($C_{\text{operational\_overhead}}$) added while the shipment passes through the active US-Iran disruption corridor.
 
-This algorithmic output serves exclusively as an edge-weight penalty variable within the real-time pathfinding layer. Conversely, the baseline structural contract penalty for late-door delivery, defined as a macro-economic parameter in Section 5.4, stands at a flat rate of \$150.00 USD per diem ($P_{\text{contractual}}$). 
+This value is used only as an edge-weight penalty in the pathfinding layer. The contract penalty for late delivery, defined in Section 5.4, is a flat \$150.00 USD per day ($P_{\text{contractual}}$).
 
-Consequently, for an empirical shipment experiencing an operational route latency of $\Delta t = 4.2$ days within the affected sector, the total compounded fiscal liability ($C_{\text{total\_disruption}}$) is formulated as follows:
+For a shipment delayed by $\Delta t = 4.2$ days in the affected sector, the total cost ($C_{\text{total\_disruption}}$) is:
 
 \begin{equation}
 C_{\text{total\_disruption}} = \int_{0}^{t} C_{\text{operational\_overhead}}(\tau) \, d\tau + \left( \lceil \Delta t_{\text{days}} \rceil \times P_{\text{contractual}} \right)
 \end{equation}
 
-By isolating the dynamic, micro-level routing cost updates from the flat, macro-level contract milestone fine indicators, the algorithm preserves its optimization sensitivity while accurately scaling to meet total multi-day logistical liabilities in real-world SME environments.
+Keeping the per-edge routing costs separate from the flat contract penalties lets the algorithm stay sensitive during optimization while still accounting for the full multi-day cost that an SME would actually pay.
 
 \section{Asynchronous API Performance and Scalability}
 
-A major technical challenge in system implementation was the limit on API rate and how to avoid user interface lag during data fetching. LogiShop pulls telemetry from multiple carrier layers at once so the backend needs to process data atomicity.
+A major implementation challenge was staying within carrier API rate limits while avoiding interface lag during data fetching. LogiShop pulls telemetry from several carriers at once, so the backend has to handle these requests carefully.
 
-To test the boundaries of the system, telemetry ingestion pipelines were stress tested by generating continuous webhook pulses to simulate concurrent data streams. During initial testing, unthrottled concurrent requests rapidly exceeded the traffic levels imposed by the external carrier sandbox environments. This baseline workload resulted in immediate HTTP 429 (Too Many Requests) exceptions. This data bottleneck confirmed that standard, naive polling methods quickly fail under realistic enterprise conditions, as unhandled synchronous request accumulation directly blocked the application event loop and caused noticeable latency propagation to the user dashboard.
+To find the system's limits, we stress-tested the telemetry ingestion pipelines by sending continuous webhook pulses that simulated concurrent data streams. Without throttling, these requests quickly exceeded the limits of the carrier sandbox environments and triggered HTTP 429 (Too Many Requests) errors. This confirmed that naive polling fails under realistic load: unhandled synchronous requests piled up, blocked the application event loop, and caused visible lag on the user dashboard.
 
-When an HTTP 429 exception occurs, the ingestion worker automatically halts immediate retries, logs the exception state without breaking the user's dashboard view, and starts a backoff loop that progressively delays the user’s execution. This programming approach makes sure that even if external APIs are throttling requests, LogiShop can overcome this and keep applications running at a high uptime. It keeps local order data in Supabase secure and responsive, which makes it very scalable for Vietnamese logistics companies.
+When a 429 error occurs, the ingestion worker stops retrying immediately, logs the error without disrupting the dashboard, and enters a backoff loop that spaces out the following requests. This keeps LogiShop running even when external APIs throttle it, and it keeps the local order data in Supabase responsive, which helps the system scale for Vietnamese logistics companies.
