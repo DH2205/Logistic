@@ -38,10 +38,10 @@ export async function GET(request: NextRequest) {
     const transformedOrders = orders.map((order: any) => serializeOrderUps(order));
 
     return NextResponse.json(transformedOrders);
-  } catch (error: any) {
+  } catch {
     console.error('Error fetching orders:', error);
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }

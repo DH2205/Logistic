@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   if (!limit.allowed) {
     const retryAfter = Math.ceil((limit.resetAt - Date.now()) / 1000);
     return NextResponse.json(
-      { message: `Too many login attempts. Try again in ${retryAfter} seconds.` },
+      { message: `Too many login attempts. Try again in ${retryAfter} seconds.`, retryAfter },
       {
         status: 429,
         headers: {
@@ -80,9 +80,9 @@ export async function POST(request: NextRequest) {
         role,
       }
     });
-  } catch (error: any) {
+  } catch {
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }

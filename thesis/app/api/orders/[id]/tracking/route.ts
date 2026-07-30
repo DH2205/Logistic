@@ -101,10 +101,10 @@ export async function PUT(
       trackingData,
     });
 
-  } catch (error: any) {
+  } catch {
     console.error('Error updating tracking number:', error);
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
@@ -162,7 +162,7 @@ export async function GET(
     if (hasUPSCredentials) {
       try {
         trackingData = await upsTrackingService.trackShipment(order.tracking_number);
-      } catch (error: any) {
+      } catch {
         console.warn('UPS API error:', error);
         const msg: string = error.message || 'UPS API error';
         const isNotFound =
@@ -196,10 +196,10 @@ export async function GET(
       source: hasUPSCredentials ? 'ups' : 'mock',
     });
 
-  } catch (error: any) {
+  } catch {
     console.error('Error fetching order tracking:', error);
     return NextResponse.json(
-      { message: 'Server error', error: error.message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }

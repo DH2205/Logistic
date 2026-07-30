@@ -57,10 +57,10 @@ export async function GET(request: NextRequest) {
     console.log(`✅ Generated unique order ID: ${orderId} (user: ${authResult.userId})`);
     
     return NextResponse.json({ orderId });
-  } catch (error: any) {
+  } catch {
     console.error('❌ Error generating order ID:', error);
     return NextResponse.json(
-      { message: 'Error generating order ID', error: error.message },
+      { message: 'Error generating order ID' },
       { status: 500 }
     );
   }

@@ -15,8 +15,6 @@ const EMAIL  = 'victim@example.com';
 const PASSWORDS = [
   '123456', 'password', 'qwerty', 'admin', 'letmein',
   'welcome', 'monkey', 'dragon', 'master', '123123',
-  'abc123', 'iloveyou', 'sunshine', 'princess', 'football',
-  'shadow', 'superman', 'michael', 'password1', '12345678',
 ];
 
 async function sendLoginRequest(password, index) {

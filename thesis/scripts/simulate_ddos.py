@@ -15,13 +15,11 @@ import time
 
 TARGET    = "http://localhost:3000/api/auth/login"
 EMAIL     = "victim@example.com"
-TOTAL     = 20
+TOTAL     = 10
 
 PASSWORDS = [
     "123456", "password", "qwerty", "admin", "letmein",
     "welcome", "monkey", "dragon", "master", "123123",
-    "abc123", "iloveyou", "sunshine", "princess", "football",
-    "shadow", "superman", "michael", "password1", "12345678"
 ]
 
 results = {"allowed": 0, "blocked": 0, "errors": 0}

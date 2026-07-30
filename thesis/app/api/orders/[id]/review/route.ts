@@ -92,7 +92,7 @@ export async function POST(
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error in order review:', error);
     return NextResponse.json(
-      { message: 'Server error', error: message },
+      { message: 'Internal server error' },
       { status: 500 }
     );
   }
